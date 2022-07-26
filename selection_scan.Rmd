@@ -1,0 +1,754 @@
+---
+title: "Selection test"
+author: "Lorena Lorenzo Fernández"
+date: "25 March, 2021"
+output:
+csl: 
+editor_options:
+  chunk_output_type: console
+---
+
+## 1. Rehh, an R package for analysing iHS and XP-EHH
+
+### 1.1 Prepare data
+
+Once I have filtered, phased and polarized data (see variant_filtering.md , phasing.md or polarization.md), I can start with selection analyses. The vcf file containing such information is:
+
+`goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf`
+
+The next step is to get a subset data to try in Rstudio the code for the package rehh (see tryals_rehh.R)
+
+Once did it, I have to get a vcf per sp and per chr to process data.
+
+While doing this, I realized that GATK SelectVariants needed the chr length specified in the header so I had to modify the vcf and try again ( I took this info from genomics-a server vcf_filtering). After that, the next problem is de GT info, so I had to make again the header including this info.
+
+``` bash
+#Separate per sp vcf
+species=(lc ll lp lr)
+
+for sp in ${species[@]}
+  do
+    #Name per sp samples
+    samples=($(grep -m1 "#CHR" /home/llorenzo/goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf | tr '\t' '\n' | grep "${sp}"))
+    /opt/gatk-4.1.0.0/gatk SelectVariants \
+      -R /GRUPOS/grupolince/reference_genomes/felis_catus_genome/Felis_catus.Felis_catus_9.0.dna.toplevel.fa \
+      -V /home/llorenzo/goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf \
+      $(for i in ${samples[@]}; do echo "-sn ${i}"; done) \
+      -O /home/llorenzo/${sp}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf
+  done
+  
+#Separate per chr sp vcf
+for sp in ${species[@]}
+do
+  echo "$sp"
+  CHR=($(cat /GRUPOS/grupolince/reference_genomes/felis_catus_genome/Felis_catus.Felis_catus_9.0.dna.toplevel.fa.fai | cut -f 1 | uniq))
+  for chr in ${CHR[@]:0:20}
+    do
+      echo "$chr"
+      grep -E "^(#|${chr})" /home/llorenzo/${sp}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf \
+      > /home/llorenzo/${chr}_${sp}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf
+      echo "Done $chr for $sp vcf"
+    done
+done
+```
+
+### 1.2 iHS analyses
+
+We will run in parallel the code for calculating ihs in each chr in the genomics-b server (See ihs.R). With this we will get two plots with the ihs results (ihs score and p-value) per chr and sp.
+
+```{bash}
+CHR=($(cat /GRUPOS/grupolince/reference_genomes/felis_catus_genome/Felis_catus.Felis_catus_9.0.dna.toplevel.fa.fai | cut -f 1 | uniq))
+
+for chr in ${CHR[@]:0:18}
+    do
+    echo "$chr"
+    screen -dmS "session_$chr" Rscript ./ihs.R $chr
+done
+```
+
+We also are interested in the genome wide score plots per sp.
+
+```{bash}
+species=(lc ll lp lr)
+
+for sp in ${species[@]}
+    do
+    echo "$sp"
+    screen -dmS "session_$sp" Rscript ./ihs_sp.R $sp
+    done
+```
+
+We found that Kovalaskas et al. 2020 used an adjusted p-value to correct for False Discovery Rate (FDR) using Benjamini-Hochberg method. After investigating about the method and the meaning I tried to integrate in my analyses. The option has to be marked in the ihh2ihs function (See ihs_sp.R):
+
+#### **Test if fixed variants adds noise to iHS calculation**
+
+From the results we can conclude that the results are the same because fixed markers are previously discarded
+
+```{r}
+lc_scan_nofixed<- lc_scan %>% filter(FREQ_A != 1 & FREQ_D != 1)
+
+ihs<- ihh2ihs(lc_scan_nofixed, freqbin = 0.05, p.adjust.method = "fdr")
+##OUTPUT##
+#Discard focal markers with Minor Allele Frequency equal to or below 0.05 .
+#506471 markers discarded.
+#962534 markers remaining.
+
+ihs2<- ihh2ihs(lc_scan, freqbin = 0.05, p.adjust.method = "fdr")
+##OUTPUT##
+#Discard focal markers with Minor Allele Frequency equal to or below 0.05 .
+#18262514 markers discarded.
+#962534 markers remaining.
+```
+
+### 1.3 XP-EHH analyses
+
+Discuss here (relying in previous studies) the difference btw this methods, what should we use and why.
+
+Taken from Talenti2017:
+
+The Rsb statistic compares EHH for the same SNP in two different populations and can provide evidence of selection given the presence of high-frequency or fixed alleles in one population but not on the other (Tang et al. 2007). Similarly, the XP-EHH detected selective sweeps in which one allele had undergone strong directional selection in one population while remaining polymorphic in the population as a whole (Sabeti et al. 2007)
+
+We finally decided to use XP-EHH (See xpehh_sp.R)
+
+```{bash}
+
+#Calculating XP-EHH
+screen -dmS "session_xpehh" Rscript ./xpehh_sp.R
+```
+
+## 2. Lassip, a program for analysing HFS
+
+### 2.1 Installation
+
+I have tried to install lassip in genomics-b server with several errors because of the operation system version:
+
+```{bash}
+[llorenzo@genomics_b linux]$ ./lassip
+./lassip: /lib64/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by ./lassip)
+./lassip: /lib64/libstdc++.so.6: version `CXXABI_1.3.8' not found (required by ./lassip)
+./lassip: /lib64/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by ./lassip)
+./lassip: /lib64/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by ./lassip)
+```
+
+We had to use conda to install the libraries needed to make it work. Enrico helped me with this part of the code. Each time I want to use lassip I have to go to lassip/lib directory and call the variable with export (not sure what does the command). Once did this, lassip works but I get this error:
+
+*ERROR: Must provide a map from ind to pop with --pop.*
+
+*ERROR: Window size needs to be greater than 0.*
+
+*ERROR: Window step size needs to be greater than 0.*
+
+So we need a pop.txt file and to specify window size and step (101/10).
+
+```{bash}
+#make a sp_ind.txt (pop file) needed for lassip
+species=(lc ll lp lr)
+for sp in ${species[@]}
+  do
+  sed "s/$/\t${sp}/" <(grep "#CHR" ${sp}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf | tr "\t" "\n" | grep "c_")  > ${sp}_ind.txt
+  done
+```
+
+### 2.2 saltiLASSI analyses
+
+```{bash}
+#Create a screen in genomics-b server
+screen -S LASSI
+
+#Lassip installation using conda
+conda
+source activate lassip
+cd /home/llorenzo/.conda/envs/lassip/lib
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/tu_usuario/miniconda3/lib/
+
+#try if it works
+/home/llorenzo/lassip-master/bin/linux/lassip
+
+#############################LASSIP###############################
+##################################################################
+
+#name de variables (sp and chr)  
+species=(lc ll lp lr)
+CHR=($(grep -v "#" /home/llorenzo/goodsamples_cat_ref.filter8.vcf | cut -f1 | grep -vE "(MT|KZ|AANG)" | uniq)) 
+
+#run the program in a loop per sp and chr
+for sp in ${species[@]}
+  do
+    echo "$sp"
+    for chr in ${CHR[@]:0:19} 
+      do
+        echo "trying salti-lassi in $chr"        
+        /home/llorenzo/lassip-master/bin/linux/lassip --vcf /home/llorenzo/rehh_test/chr_ihs/${chr}_${sp}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf --calc-spec --hapstats --salti --winsize 101 --winstep 10 --pop /home/llorenzo/rehh_test/${sp}_ind.txt --out /home/llorenzo/rehh_test/${chr}
+      done
+       /home/llorenzo/lassip-master/bin/linux/lassip --spectra /home/llorenzo/rehh_test/*${sp}.lassip.hap.spectra.gz --salti --out /home/llorenzo/rehh_test/${sp}_salti
+  done
+  
+#lr as the most genetic diverse sp makes lots of windows w/ the parameters especify before, so I try again increasing windows step 
+for sp in ${species[@]}
+  do
+    echo "$sp"
+    for chr in ${CHR[@]:0:19} 
+      do
+        echo "trying salti-lassi in $chr"        
+        /home/llorenzo/lassip-master/bin/linux/lassip --vcf /home/llorenzo/rehh_test/chr_ihs/${chr}_${sp}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf --calc-spec --hapstats --salti --winsize 101 --winstep 50 --pop /home/llorenzo/rehh_test/${sp}_ind.txt --out /home/llorenzo/rehh_test/${chr}_50wstep
+      done
+       /home/llorenzo/lassip-master/bin/linux/lassip --spectra /home/llorenzo/rehh_test/*_50wstep.${sp}.lassip.hap.spectra.gz --salti --out /home/llorenzo/rehh_test/${sp}_salti_50wstep
+  done
+```
+
+#### **Test if fixed variants adds noise to iHS calculation**
+
+As I test before with rehh, I have to test (maybe I could do it previously) if the variants fixed are causing noise in the selection scan. Thus, variants with AF=0.00 and AF=1.00 must be eliminated before the scan (the vast majority).
+
+```{bash}
+#name de variables (sp and chr)  
+species=(lc ll lp lr)
+CHR=($(grep -v "#" /home/llorenzo/goodsamples_cat_ref.filter8.vcf | cut -f1 | grep -vE "(MT|KZ|AANG)" | uniq)) 
+
+for sp in ${species[@]}
+  do
+    echo "$sp"
+    for chr in ${CHR[@]:0:19} 
+      do
+        echo "eliminate fixed in $chr"     
+        grep -vE "(AF=1.00|AF=0.00)" \
+        ${chr}_${sp}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf \
+        > ${chr}_${sp}_goodsamples_filtered_phased_polarized_nofixed_header_cat_ref.vcf
+      done
+  done  
+  
+#################################
+#######repeat saltiLASSI#########
+#################################
+
+#Lassip installation using conda
+conda
+source activate lassip
+cd /home/llorenzo/.conda/envs/lassip/lib
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/tu_usuario/miniconda3/lib/
+
+#name de variables (sp and chr)  
+species=(lc ll lp lr)
+CHR=($(grep -v "#" /home/llorenzo/goodsamples_cat_ref.filter8.vcf | cut -f1 | grep -vE "(MT|KZ|AANG)" | uniq)) 
+
+#run salti-lassi
+for sp in ${species[@]}
+  do
+    echo "$sp"
+    for chr in ${CHR[@]:0:19} 
+      do
+        echo "trying salti-lassi in $chr"        
+        /home/llorenzo/lassip-master/bin/linux/lassip --vcf /home/llorenzo/rehh_test/chr_ihs/${chr}_${sp}_goodsamples_filtered_phased_polarized_nofixed_header_cat_ref.vcf --calc-spec --hapstats --salti --winsize 101 --winstep 10 --pop /home/llorenzo/rehh_test/${sp}_ind.txt --out /home/llorenzo/rehh_test/${chr}_nofixed
+      done
+       /home/llorenzo/lassip-master/bin/linux/lassip --spectra /home/llorenzo/rehh_test/*_nofixed.${sp}.lassip.hap.spectra.gz --salti --out /home/llorenzo/rehh_test/${sp}_salti_nofixed
+  done
+  
+##PROVED IT DOESNT CHANGE ANYTHING  
+```
+
+## 3. Ploting results
+
+For iHS and XP-EHH, the rehh R package has a manhattanplot function that directly plots the results from both analyses. However, for saltiLASSI results I had to plot with ggplot2 and I did the same with iHS for comparative analyses.
+
+### 3.1 saltiLASSI outliers, cutoffs and plots
+
+```{r}
+#!/usr/bin/env Rscript
+
+print("Starting plotting LASSI results code")
+
+#Install dependencies
+
+  ##install.packages("dplyr")         ##only once
+  ##install.packages("tidyverse")
+  ##install.packages("ggplot2")
+
+  library(dplyr)
+  library(tidyverse)
+  library(ggplot2)
+
+#Set working directory
+  setwd("rehh_test")
+
+#Name variables
+  species<- c("lc", "ll", "lp", "lr")
+
+
+for (sp in species)
+{
+  #Read data
+  df<- read.table(paste0(sp, "_salti.lassip.hap.out"), sep="\t", header=T)
+  print(paste("Read data for", sp))
+  
+  #Group by chr
+  data_cum <- df %>% 
+    group_by(chr) %>% 
+    summarise(max_bp = max(pos)) %>%
+    mutate(bp_add = lag(cumsum(max_bp), default = 0)) %>% 
+    select(chr, bp_add)
+
+  data <- df %>% 
+    inner_join(data_cum, by = "chr") %>% 
+    mutate(bp_cum = pos + bp_add)
+
+  axis_set <- data %>% 
+    group_by(chr) %>% 
+    summarize(center = mean(bp_cum))
+ 
+  print("Acumulated by chr")
+  
+  #Change the "sp_L" column name to another in order to make it easier to manage
+  colnames(data)[12]<- "statistic"
+  
+  print("rename sp_L column to statistic")
+  
+  #get the 95% and 99% cut-off of the data
+  print(paste(sp, round(length(data$statistic) * 0.05), "top 5% values"))
+  print(paste(sp, round(length(data$statistic) * 0.01), "top 1% values"))
+  
+  cut_95 <- sort(data$statistic)[round(length(data$statistic) * 0.95)]
+  cut_99 <- sort(data$statistic)[round(length(data$statistic) * 0.99)]
+  
+  print(paste(sp, cut_95, "5% cut-off" ))
+  print(paste(sp, cut_99, "1% cut-off" ))
+  
+  print("Cut-offs done")
+  
+  ##########################Plotting results###################################
+  
+  #Give a name and size to the output plot
+  pdf(paste0(sp,"_saltilassi_cutoffs_manhattanplot.pdf"), width=10, height=5)
+
+  
+  #Plot with cutoffs
+  print(ggplot(data, aes(x = bp_cum, y = statistic, color = as_factor(chr))) +
+      geom_point(alpha = 0.5) +
+      geom_hline(yintercept= cut_95, color="grey", linetype="dashed") +
+      geom_hline(yintercept= cut_99, color="red", linetype="dashed") +
+      scale_x_continuous(label = axis_set$chr, breaks = axis_set$center) +
+      labs (x="Chromosome", y=expression(Lambda), title=sp ) +
+      theme(plot.title = element_text(hjust = 1, vjust = -10), legend.position = "none"))
+  
+  #Save the pdf results        
+  dev.off()
+  print("Manhattanplot done and saved")
+
+
+  #Plot statistic distribution
+  pdf(paste0(sp,"_L_statistic_distplot.pdf"), width=10, height=5)
+  
+  print(ggplot(data, aes(x= statistic)) +
+          geom_freqpoly(binwidth=10) + 
+          ylim(0, 20000) +
+          labs (title=sp))
+  
+  dev.off()
+  
+  print("Distributionplot done and saved")
+  
+  ###########################Extracting outliers####################################
+  #Extract a dataframe with the 1% outliers
+  outliers<- data %>% filter(statistic >= cut_99) %>% select(c(1,2,3,5,12))
+  write.table(outliers, file=(paste0(sp, "_99outliers")), sep="\t", row.names = FALSE, quote = FALSE)
+  
+  #Save as 0-based bed file
+  bed <- outliers %>% mutate(start= start - 1) %>% select(c(1,2,3))
+  write.table(bed, file=(paste0(sp, "_99outliers.bed")), sep="\t", col.names= FALSE, row.names = FALSE, quote = FALSE)
+  
+  print("outliers df saved")
+}
+```
+
+After this, I want to merge every overlapping outlier window with bedtools merge:
+
+```{bash}
+species=(lc ll lp lr)
+
+for sp in ${species[@]}
+  do
+    echo "$sp"
+    bedtools merge -i ${sp}_99outliers.bed -c 1 -o count \
+    > ${sp}_99outliers_merged.bed
+  done  
+```
+
+### 3.2 iHS outliers, cutoffs and plots
+
+```{r}
+#!/usr/bin/env Rscript
+
+print("Starting plotting iHS results code")
+
+#Install dependencies
+
+  ##install.packages("dplyr")         ##only once
+  ##install.packages("tidyverse")
+  ##install.packages("ggplot2")
+
+  library(dplyr)
+  library(tidyverse)
+  library(ggplot2)
+
+#Name the variables
+species<- c("lc", "ll", "lp", "lr")
+
+
+for (sp in species)
+{
+  ihs_scan <- read.table(paste0(sp, "_ihs_scan"), sep="\t", header= TRUE)
+
+  #Now, that I have also saltiLASSI results, I am going to plot ihs results in ggplot2
+  #Group by chr
+  data_cum <- ihs_scan %>% 
+    group_by(CHR) %>% 
+    summarise(max_bp = max(POSITION)) %>%
+    mutate(bp_add = lag(cumsum(max_bp), default = 0)) %>% 
+    select(CHR, bp_add)
+
+  data <- ihs_scan %>% 
+    inner_join(data_cum, by = "CHR") %>% 
+    mutate(bp_cum = POSITION + bp_add) %>%
+    na.omit()
+
+  axis_set <- data %>% 
+    group_by(CHR) %>% 
+    summarize(center = mean(bp_cum))
+
+  #get the 0.1% of data
+  cut_99.9 <- quantile(data$LOGPVALUE,probs=0.999,na.rm=T)
+  
+  print(paste(sp, round(length(data$LOGPVALUE) * 0.001), "top 0.1% values"))
+  print(paste(sp, cut_99.9, "0.1% cut-off" ))
+  
+  print("Cut-offs done")
+
+ ##########################Plotting results###################################
+  #Give a name and size to the output plot
+  path<- "/home/llorenzo/selection_scan/rehh_test/plots/"
+  pdf(paste0(path, sp,"_ihs_cutoffs_manhattanplot.pdf"), width=10, height=5)
+  
+  print(ggplot(data, aes(x = bp_cum, y = LOGPVALUE, color = as_factor(CHR))) +
+          geom_point(alpha = 0.5) +
+          geom_hline(yintercept= cut_99.9, color="grey", linetype="dashed") +
+          scale_x_continuous(label = axis_set$CHR, breaks = axis_set$center) +
+          labs (x="Chromosome", y="p-adjust iHS", title=sp ) +
+          theme(plot.title = element_text(hjust = 1, vjust = -10), legend.position = "none"))
+  
+  dev.off()
+
+  ###########################Extracting outliers####################################
+  #Extract a dataframe with the 0.1% outliers
+  outliers<- data %>% filter(LOGPVALUE >= cut_99.9) %>% select(c(1,2,3,4))
+  write.table(outliers, file=(paste0(sp, "_ihs_99.9outliers")), sep="\t", row.names = FALSE, quote = FALSE)
+  
+  print("outliers df saved")
+  
+  #Save as 0-based bed file
+  bed <- outliers %>% mutate(start= POSITION - 1) %>% select(c(1,5,2))
+  write.table(bed, file=(paste0(sp, "_ihs_99.9outliers.bed")), sep="\t", col.names= FALSE, row.names = FALSE, quote = FALSE)
+  
+  print("bed df saved")
+}  
+```
+
+### 3.3 Intersect between the two methods
+
+```{bash}
+species=(lc ll lp lr)
+
+for sp in ${species[@]}
+  do
+    echo "$sp"
+    bedtools intersect \
+    -a /home/llorenzo/selection_scan/lassi_test/${sp}_99outliers_merged.bed \
+    -b /home/llorenzo/selection_scan/rehh_test/${sp}_ihs_99.9outliers.bed \
+    -wao \
+    > /home/llorenzo/selection_scan/${sp}_outliers_ihslassi_intersect.bed
+  done  
+```
+
+Once did this I am going to plot shaded areas from LASSI outliers over the iHS plot results
+
+```{r}
+
+#Name the variables
+species<- c("lc", "ll", "lp", "lr")
+
+
+for (sp in species)
+{
+  ###LASSI###
+  #Read the data
+  path <- "/home/llorenzo/selection_scan/lassi_test/"
+  lassi_outliers <- read.table(paste0(path, sp, "_99outliers_merged.bed"), sep="\t")
+  colnames(lassi_outliers) <- c("chr", "start", "end", "n_windows")
+    
+  #Group by chr
+  data_lassi_cum <- lassi_outliers %>% 
+    group_by(chr) %>% 
+    summarise(max_bp = max(end)) %>%
+    mutate(bp_add = lag(cumsum(max_bp), default = 0)) %>% 
+    select(chr, bp_add)
+
+  data_lassi <- lassi_outliers %>% 
+    inner_join(data_lassi_cum, by = "chr") %>% 
+    mutate(bp_start_cum = start + bp_add) %>%
+    mutate(bp_end_cum = end + bp_add) %>%
+    na.omit()
+  
+  ###iHS###
+  #Read the data
+  path <- "/home/llorenzo/selection_scan/rehh_test/"
+  ihs_scan <- read.table(paste0(path, sp, "_ihs_scan"), sep="\t", header= TRUE)
+
+  #Group by chr
+  data_ihs_cum <- ihs_scan %>% 
+    group_by(CHR) %>% 
+    summarise(max_bp = max(POSITION)) %>%
+    mutate(bp_add = lag(cumsum(max_bp), default = 0)) %>% 
+    select(CHR, bp_add)
+
+  data_ihs <- ihs_scan %>% 
+    inner_join(data_ihs_cum, by = "CHR") %>% 
+    mutate(bp_cum = POSITION + bp_add) %>%
+    na.omit()
+
+  ihs_axis_set <- data_ihs %>% 
+    group_by(CHR) %>% 
+    summarize(center = mean(bp_cum))
+
+  #get the 0.1% of data
+  cut_99.9 <- quantile(data_ihs$LOGPVALUE,probs=0.999,na.rm=T)
+  
+  print(paste(sp, round(length(data_ihs$LOGPVALUE) * 0.001), "top 0.1% values"))
+  print(paste(sp, cut_99.9, "0.1% cut-off" ))
+  
+  print("Cut-offs done")
+  
+#Plot ihs with lassi windows  
+path<- "/home/llorenzo/selection_scan/"
+pdf(paste0(path, sp, "_ihs_lassi_cutoffs_manhattanplot.pdf"), width=10, height=5)
+
+print(ggplot() +
+        geom_point(data_ihs, mapping=aes(x = bp_cum, y = LOGPVALUE, color = as_factor(CHR)), alpha = 0.5) +
+        geom_hline(yintercept= cut_99.9, color="grey", linetype="dashed") +
+        geom_rect(data_lassi, mapping=aes(xmin = bp_start_cum, xmax = bp_end_cum, ymin = -Inf, ymax = Inf), alpha = 0.4, color = as_factor(CHR)) +
+        scale_x_continuous(label = axis_set$CHR, breaks = axis_set$center) +
+        labs (x="Chromosome", y="p-adjust iHS", title=sp ) +
+        theme(plot.title = element_text(hjust = 1, vjust = -10), legend.position = "none"))
+
+dev.off()
+
+print("Plot done and saved")
+}
+```
+
+Any conclusion can be extracted from this plot. I represented all SNPs from iHS and windows can rarely be seen as they are really small in contrast with the chr length, so as a result, we can only see a vertical line representing the window and lots of points representing SNPs.
+
+So, the next thing I am going to try is to plot per chr outliers windows from saltilassi and the outliers SNPs from iHS.
+
+```{r}
+#Name the variables
+species<- c("lc", "ll", "lp", "lr")
+
+
+for (sp in species)
+{
+  ###LASSI###
+  #Read the data
+  path <- "/home/llorenzo/selection_scan/lassi_test/"
+  lassi_outliers <- read.table(paste0(path, sp, "_99outliers_merged.bed"), sep="\t") 
+  colnames(lassi_outliers) <- c("CHR", "START", "END", "N_WINDOWS")
+  lassi_outliers <-  filter(lassi_outliers, CHR != "X")
+  print("Reading lassi results done")
+  
+  ###iHS###
+  #Read the data
+  path <- "/home/llorenzo/selection_scan/rehh_test/"
+  ihs_outliers <- read.table(paste0(path, sp, "_ihs_99.9outliers"), sep="\t", header= TRUE)
+  colnames(ihs_outliers) <- c("CHR", "POS", "IHS", "PVAL")
+  print("Reading iHS results done")
+  
+  #Plot ihs with lassi windows  
+#Define chromosome variable
+chromosomes <- c("A1", "A2", "A3", "B1", "B2", "B3", "B4", "C1", "C2", "D1", "D2", "D3", "D4", "E1", "E2", "E3", "F1", "F2")
+
+#loop per chr plot
+for (chr in chromosomes)
+{
+chr_data_ihs <- ihs_outliers %>%
+  filter(CHR== chr)
+chr_data_lassi <- lassi_outliers %>%
+  filter(CHR== chr)
+    
+path<- "/home/llorenzo/selection_scan/"
+pdf(paste0(path, chr, "_", sp, "_ihs_lassi_manhattanplot.pdf"), width=10, height=5)
+
+print(ggplot() +
+        geom_point(chr_data_ihs, mapping=aes(x = POS, y = PVAL, alpha = 0.5)) +
+        geom_rect(chr_data_lassi, mapping=aes(xmin = START, xmax = END, ymin = -Inf, ymax = Inf), alpha = 0.4) +
+        labs (x="Chromosome", y="p-adjust iHS", title=sp ) +
+        theme(plot.title = element_text(hjust = 1, vjust = -10), legend.position = "none"))
+
+dev.off()
+
+print("Plot done and saved")
+}
+}
+```
+
+By doing this I discovered that 0.1% of SNPS and 1% of windows is very restrictive. I am going to try with 1% of SNPS and 5% of windows. Well maybe is only in lc
+
+PROBLEM FOUND: Lp has aprx. 8.2M variants, which is much more than expected... I went back to the sp_filter8.vcf and discover that by this point lp has 1.2M variants which is far more feasible. Now I have to traceback where I did it wrong (but unluckily this week I don't have access to CESGA, due to CSIC-cibersecurity problems)
+
+### 3.3.1 PCA before and after phasing
+
+```{bash}
+###PCA
+#Repeat plink per sp.
+species=(lc ll lp lr)
+
+for i in ${species[@]}
+  do
+    VCF=/home/llorenzo/selection_scan/rehh_test/${i}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf
+    # perform linkage pruning - i.e. identify prune sites
+    plink_1.9 --vcf $VCF --double-id --allow-extra-chr \
+    --set-missing-var-ids @:# \
+    --indep-pairwise 50 10 0.1 --out ${i}_goodsamples_filtered_phased_polarized_cat_ref
+    #run PCA in the subset
+    plink_1.9 --vcf $VCF --double-id --allow-extra-chr --set-missing-var-ids @:# \
+    --extract ${i}_goodsamples_filtered_phased_polarized_cat_ref.prune.in \
+    --make-bed --pca --out ${i}_goodsamples_filtered_phased_polarized_cat_ref
+  done
+
+
+```
+
+```{r}
+library(tidyverse)
+library(viridis)
+
+
+species<- c("lc", "ll", "lp", "lr")
+path <- "~/"
+
+##PREPHASED PCAs##
+for (sp in species)
+{
+  #Read pre-phased data
+  # import eigen vec and val
+pca <- read_table(paste0(path, sp, "_goodsamples_cat_ref.eigenvec"),
+                   col_names = FALSE)
+eigenval <- scan(paste0(path, sp, "_goodsamples_cat_ref.eigenval"))  
+
+# remove nuisance column
+pca <- pca[,-1]
+# set names
+names(pca)[1] <- "ind"
+names(pca)[2:ncol(pca)] <- paste0("PC", 1:(ncol(pca)-1))
+
+print("named cols")
+
+# first convert to percentage variance explained
+pve <- data.frame(PC = 1:(ncol(pca)-1), pve = eigenval/sum(eigenval)*100)
+# then make a plot
+pdf(paste0(path, sp, "prephased_pve.pdf"))
+print(ggplot(pve, aes(PC, pve)) +
+        geom_bar(stat = "identity") +
+        ylab("Percentage variance explained") + 
+        theme_light())
+dev.off()
+print("pve plot done")
+
+# plot PC1 PC2
+pdf(paste0(path, sp, "prephased_pca.pdf"))
+
+print(ggplot() +
+   geom_point(pca, mapping=aes(x= PC1, y= PC2, color=ind) , size=4, alpha = 0.5) +
+    geom_text(pca, mapping=aes(x= PC1, y= PC2, label=ind), size=3, check_overlap = TRUE) +
+    coord_equal() +
+    theme() +
+    xlab(paste0("PC1 (", signif(pve$pve[1], 3), "%)")) +
+    ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)")))
+dev.off()
+print("pca plot done")
+}
+
+##PHASED PCAs##
+for (sp in species)
+{
+#Read phased data
+pca <- read_table(paste0(path, sp, "_goodsamples_filtered_phased_polarized_cat_ref.eigenvec"),
+                   col_names = FALSE)
+eigenval <- scan(paste0(path, sp, "_goodsamples_filtered_phased_polarized_cat_ref.eigenval"))
+
+print("read data")
+# remove nuisance column
+pca <- pca[,-1]
+# set names
+names(pca)[1] <- "ind"
+names(pca)[2:ncol(pca)] <- paste0("PC", 1:(ncol(pca)-1))
+
+print("named cols")
+
+# first convert to percentage variance explained
+pve <- data.frame(PC = 1:(ncol(pca)-1), pve = eigenval/sum(eigenval)*100)
+# then make a plot
+pdf(paste0(path, sp, "phased_pve.pdf"))
+print(ggplot(pve, aes(PC, pve)) +
+        geom_bar(stat = "identity") +
+        ylab("Percentage variance explained") + 
+        theme_light())
+dev.off()
+print("pve plot done")
+
+# plot PC1 PC2
+pdf(paste0(path, sp, "phased_pca.pdf"))
+
+print(ggplot() +
+   geom_point(pca, mapping=aes(x= PC1, y= PC2, color=ind) , size=4, alpha = 0.5) +
+    geom_text(pca, mapping=aes(x= PC1, y= PC2, label=ind), size=3, check_overlap = TRUE) +
+    coord_equal() +
+    theme() +
+    xlab(paste0("PC1 (", signif(pve$pve[1], 3), "%)")) +
+    ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)")))
+dev.off()
+print("pca plot done")
+}
+```
+
+```{bash}
+bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' *_lp_whatshap_phased_duplicated.vcf | wc -l
+```
+
+```{bash}
+
+#LOOKING FOR THE ERROR
+
+species=(lc lp lr)
+CHR=($(cat $STORE2/reference_genomes/Felis_catus_Ref/Felis_catus.Felis_catus_9.0.dna.toplevel.fa.fai | cut -f 1 | uniq))
+
+for sp in ${species[@]}
+  do
+    for chr in ${CHR[@]:0:19} 
+        do
+          grep -v "#" ${chr}_${sp}_whatshap_phased_duplicated.vcf  >> ${sp}_tryal_nvariants.vcf
+      done
+      wc -l ${sp}_tryal_nvariants.vcf
+      cat <(grep "#" A1_${sp}_whatshap_phased_duplicated.vcf) ${sp}_tryal_nvariants.vcf > ${sp}_tryal_nvariants_header.vcf    
+      bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' ${sp}_tryal_nvariants_header.vcf | wc -l
+    done
+    
+
+for sp in ${species[@]}
+  do
+    for chr in ${CHR[@]:0:19} 
+        do
+          grep -v "#" ${chr}_${sp}_shapeit_phased_duplicated_cat_ref.vcf  >> ${sp}_tryal_shapeit_nvariants.vcf
+      done
+      wc -l ${sp}_tryal_shapeit_nvariants.vcf
+      cat <(grep "#" $LUSTRE/phasing/intermediate_files/A1_${sp}_whatshap_phased_duplicated.vcf) ${sp}_tryal_shapeit_nvariants.vcf > ${sp}_tryal_shapeit_nvariants_header.vcf    
+      bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' ${sp}_tryal_shapeit_nvariants_header.vcf | wc -l
+    done  
+   
+```
