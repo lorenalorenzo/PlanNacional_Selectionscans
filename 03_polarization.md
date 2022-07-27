@@ -128,27 +128,33 @@ From the 20,578,917 variants in the vcf 19,463,799 remain consistent (94,6%), wh
 #Inconsistent sites (nulls)
 awk '$5!=$6 {print $0}' outgroup_parsimony_ancestral_state_lion_serval_cat_variants.bed > outgroup_parsimony_ancestral_state_lion_serval_cat_null_variants.bed
 
-#Eliminate unpolarisable variants from the vcf (general and per sp)
-bedtools subtract \
-  -a phasing/goodsamples_phased_cat_ref.vcf \
-  -b outgroup_parsimony_ancestral_state_lion_serval_cat_null_variants.bed \
-  > goodsamples_filtered_phased_polarized_cat_ref.vcf
+############Eliminate unpolarisable variants from the vcf############
+module load cesga/2018  gcccore/6.4.0 bcftools bedtools
+
+
+species=(lc ll lp lr)
 
 for sp in ${species[@]}
   do 
-bedtools subtract \
-  -a phasing/${sp}_phased_cat_ref.vcf \
-  -b outgroup_parsimony_ancestral_state_lion_serval_cat_null_variants.bed \
-  > goodsamples_filtered_phased_polarized_cat_ref.vcf
-
-#Test if there are variants with 0 AC...
-grep "AC=0" goodsamples_phased_cat_ref.vcf | wc -l
-#2.691.650--> FALTA METER LL (reducirá este número...deberia quedaer entorno a 50K)
-#51215 (UNA VEZ INCORPORADO LL)
-#47687 if we test it in the goodsamples_filtered_phased_polarized_cat_ref.vcf file
-
-#Eliminate variants with 0 AC
-grep -v "AC=0" goodsamples_filtered_phased_polarized_cat_ref.vcf > goodsamples_filtered_phased_polarized_ACfiltered_cat_ref.vcf
-
-#Add a header
+    bedtools subtract \
+     -a phasing/phased_vcf/${sp}_shapeit_phased_cat_ref.vcf \
+     -b outgroup_parsimony_ancestral_state_lion_serval_cat_null_variants.bed \
+     > ${sp}_goodsamples_filtered_phased_polarized_cat_ref.vcf
+    
+    #add the header
+    cat <(grep "##" phasing/phased_vcf/${sp}_shapeit_phased_cat_ref.vcf) \
+      <(grep -m 19 "##contig" goodsamples_cat_ref.filter8.vcf) \
+      <(grep "#CHR" phasing/phased_vcf/${sp}_shapeit_phased_cat_ref.vcf) \
+      ${sp}_goodsamples_filtered_phased_polarized_cat_ref.vcf \
+      > ${sp}_goodsamples_filtered_phased_polarized_header_cat_ref.vcf
+      
+    #Test how many variants per sp we have
+    bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' \
+      ${sp}_goodsamples_filtered_phased_polarized_header_cat_ref.vcf | wc -l
+      
+    #Eliminate non-variants sites
+    bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' \
+      ${sp}_goodsamples_filtered_phased_polarized_header_cat_ref.vcf \
+      > ${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf
+  done
 ```
