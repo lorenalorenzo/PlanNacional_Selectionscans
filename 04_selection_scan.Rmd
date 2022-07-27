@@ -14,39 +14,22 @@ editor_options:
 
 Once I have filtered, phased and polarized data (see variant_filtering.md , phasing.md or polarization.md), I can start with selection analyses. The vcf file containing such information is:
 
-`goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf`
+`${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf`
 
-The next step is to get a subset data to try in Rstudio the code for the package rehh (see tryals_rehh.R)
-
-Once did it, I have to get a vcf per sp and per chr to process data.
-
-While doing this, I realized that GATK SelectVariants needed the chr length specified in the header so I had to modify the vcf and try again ( I took this info from genomics-a server vcf_filtering). After that, the next problem is de GT info, so I had to make again the header including this info.
-
-``` bash
-#Separate per sp vcf
+```{bash}
 species=(lc ll lp lr)
 
-for sp in ${species[@]}
-  do
-    #Name per sp samples
-    samples=($(grep -m1 "#CHR" /home/llorenzo/goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf | tr '\t' '\n' | grep "${sp}"))
-    /opt/gatk-4.1.0.0/gatk SelectVariants \
-      -R /GRUPOS/grupolince/reference_genomes/felis_catus_genome/Felis_catus.Felis_catus_9.0.dna.toplevel.fa \
-      -V /home/llorenzo/goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf \
-      $(for i in ${samples[@]}; do echo "-sn ${i}"; done) \
-      -O /home/llorenzo/${sp}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf
-  done
-  
 #Separate per chr sp vcf
 for sp in ${species[@]}
 do
   echo "$sp"
   CHR=($(cat /GRUPOS/grupolince/reference_genomes/felis_catus_genome/Felis_catus.Felis_catus_9.0.dna.toplevel.fa.fai | cut -f 1 | uniq))
-  for chr in ${CHR[@]:0:20}
+  for chr in ${CHR[@]:0:19}
     do
       echo "$chr"
-      grep -E "^(#|${chr})" /home/llorenzo/${sp}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf \
-      > /home/llorenzo/${chr}_${sp}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf
+      grep -E "^(#|${chr})" \
+      /home/llorenzo/${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf \
+      > /home/llorenzo/${chr}_${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf
       echo "Done $chr for $sp vcf"
     done
 done
