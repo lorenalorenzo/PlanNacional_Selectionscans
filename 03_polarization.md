@@ -158,3 +158,13 @@ for sp in ${species[@]}
       > ${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf
   done
 ```
+
+By this previous step we confirm this number of per sp variants segregating:
+
+-   *lynx canadensis:* 1,482,386
+
+-   *lynx lynx:* 3,112,785
+
+-   *lynx pardinus:* 1,132,613
+
+-   *lynx rufus:* 8,836,277
