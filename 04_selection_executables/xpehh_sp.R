@@ -7,16 +7,18 @@ print ("Starting xpehh analysis")
 library(vcfR)
 library(rehh)
 
+#dependencies
+path<- "/mnt/lustre/scratch/home/csic/bie/llf/selection_scan/"
 
 #Read per sp scan
 print("Reading lc scan")
-lc_scan<- read.csv("lc_scan", sep=" ")
+lc_scan<- read.csv(paste0(path, "lc_scan"), sep=" ")
 print("Reading ll scan")
-ll_scan<- read.csv("ll_scan", sep=" ")
+ll_scan<- read.csv(paste0(path, "ll_scan"), sep=" ")
 print("Reading lp scan")
-lp_scan<- read.csv("lp_scan", sep=" ")
+lp_scan<- read.csv(paste0(path, "lp_scan"), sep=" ")
 print("Reading lr scan")
-lr_scan<- read.csv("lr_scan", sep=" ")
+lr_scan<- read.csv(paste0(path, "lr_scan"), sep=" ")
 
 #Calculating XP-EHH
 print ("Calculating xpehh") 
@@ -31,27 +33,27 @@ lp_lr_xpehh <- ies2xpehh(scan_pop1 = lp_scan, scan_pop2 = lr_scan, popname1 = "L
 #Plotting results
 print("Plotting results")
 
-pdf(paste0("lc_ll_", "xpehh_manhattanplot_p.adjust.pdf"))
+pdf(paste0(path, "lc_ll_", "xpehh_manhattanplot_p.adjust.pdf"))
 manhattanplot(lc_ll_xpehh, pval=TRUE)
 dev.off()
 
-pdf(paste0("lc_lp_", "xpehh_manhattanplot_p.adjust.pdf"))
+pdf(paste0(path, "lc_lp_", "xpehh_manhattanplot_p.adjust.pdf"))
 manhattanplot(lc_lp_xpehh, pval=TRUE)
 dev.off()
 
-pdf(paste0("lc_lr_", "xpehh_manhattanplot_p.adjust.pdf"))
+pdf(paste0(path, "lc_lr_", "xpehh_manhattanplot_p.adjust.pdf"))
 manhattanplot(lc_lr_xpehh, pval=TRUE)
 dev.off()
 
-pdf(paste0("ll_lp_", "xpehh_manhattanplot_p.adjust.pdf"))
+pdf(paste0(path, "ll_lp_", "xpehh_manhattanplot_p.adjust.pdf"))
 manhattanplot(ll_lp_xpehh, pval=TRUE)
 dev.off()
 
-pdf(paste0("ll_lr_", "xpehh_manhattanplot_p.adjust.pdf"))
+pdf(paste0(path, "ll_lr_", "xpehh_manhattanplot_p.adjust.pdf"))
 manhattanplot(ll_lr_xpehh, pval=TRUE)
 dev.off()
 
-pdf(paste0("lp_lr_", "xpehh_manhattanplot_p.adjust.pdf"))
+pdf(paste0(path, "lp_lr_", "xpehh_manhattanplot_p.adjust.pdf"))
 manhattanplot(lp_lr_xpehh, pval=TRUE)
 dev.off()
 
