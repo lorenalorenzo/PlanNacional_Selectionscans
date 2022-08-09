@@ -16,8 +16,9 @@ for (sp in species)
 {
   #Read the subsetted vcf    
   print ("Reading vcf")  
-  data<- data2haplohh(hap_file=paste0(chr, "_", sp, "_","goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf"), polarize_vcf= "FALSE", allele_coding="01", chr.name=chr, vcf_reader= "vcfR")
-
+  #data<- data2haplohh(hap_file=paste0(chr, "_", sp, "_","goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf"), polarize_vcf= "FALSE", allele_coding="01", chr.name=chr, vcf_reader= "vcfR")
+  data<- data2haplohh(hap_file=paste0(chr, "_", sp, "_","goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf"), polarize_vcf= "FALSE", allele_coding="01", chr.name=chr, vcf_reader= "vcfR")
+  
   #Scan the genome 
   print ("Scanning vcf")  
   data_frame<- scan_hh(data) 

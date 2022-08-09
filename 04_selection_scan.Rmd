@@ -16,20 +16,22 @@ Once I have filtered, phased and polarized data (see variant_filtering.md , phas
 
 `${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf`
 
+After finding the error in the number variants, I had to run again selection analyses. As CSIC is under informatic attack, I don't have VPN access to genomic servers, so I am repeating the analysis in CESGA server. That's why I am changing parts of the code.
+
 ```{bash}
+#Separate per chr sp vcf
 species=(lc ll lp lr)
 
-#Separate per chr sp vcf
 for sp in ${species[@]}
 do
   echo "$sp"
-  CHR=($(cat /GRUPOS/grupolince/reference_genomes/felis_catus_genome/Felis_catus.Felis_catus_9.0.dna.toplevel.fa.fai | cut -f 1 | uniq))
+  CHR=($(cat $STORE2/reference_genomes/Felis_catus_Ref/Felis_catus.Felis_catus_9.0.dna.toplevel.fa.fai | cut -f 1 | uniq))
   for chr in ${CHR[@]:0:19}
     do
       echo "$chr"
       grep -E "^(#|${chr})" \
-      /home/llorenzo/${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf \
-      > /home/llorenzo/${chr}_${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf
+      $LUSTRE/${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf \
+      > $LUSTRE/${chr}_${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf
       echo "Done $chr for $sp vcf"
     done
 done
@@ -37,67 +39,17 @@ done
 
 ### 1.2 iHS analyses
 
-We will run in parallel the code for calculating ihs in each chr in the genomics-b server (See ihs.R). With this we will get two plots with the ihs results (ihs score and p-value) per chr and sp.
+For iHS analyses we decided to use the "rehh" package available for R. The entire code is available in ihs_sp.R. To run this in CESGA, I had to create a run_ihs.sh script that specify to run the Rscript.
 
-```{bash}
-CHR=($(cat /GRUPOS/grupolince/reference_genomes/felis_catus_genome/Felis_catus.Felis_catus_9.0.dna.toplevel.fa.fai | cut -f 1 | uniq))
-
-for chr in ${CHR[@]:0:18}
-    do
-    echo "$chr"
-    screen -dmS "session_$chr" Rscript ./ihs.R $chr
-done
-```
-
-We also are interested in the genome wide score plots per sp.
-
-```{bash}
-species=(lc ll lp lr)
-
-for sp in ${species[@]}
-    do
-    echo "$sp"
-    screen -dmS "session_$sp" Rscript ./ihs_sp.R $sp
-    done
-```
-
-We found that Kovalaskas et al. 2020 used an adjusted p-value to correct for False Discovery Rate (FDR) using Benjamini-Hochberg method. After investigating about the method and the meaning I tried to integrate in my analyses. The option has to be marked in the ihh2ihs function (See ihs_sp.R):
-
-#### **Test if fixed variants adds noise to iHS calculation**
-
-From the results we can conclude that the results are the same because fixed markers are previously discarded
-
-```{r}
-lc_scan_nofixed<- lc_scan %>% filter(FREQ_A != 1 & FREQ_D != 1)
-
-ihs<- ihh2ihs(lc_scan_nofixed, freqbin = 0.05, p.adjust.method = "fdr")
-##OUTPUT##
-#Discard focal markers with Minor Allele Frequency equal to or below 0.05 .
-#506471 markers discarded.
-#962534 markers remaining.
-
-ihs2<- ihh2ihs(lc_scan, freqbin = 0.05, p.adjust.method = "fdr")
-##OUTPUT##
-#Discard focal markers with Minor Allele Frequency equal to or below 0.05 .
-#18262514 markers discarded.
-#962534 markers remaining.
-```
+NOTE: We found that Kovalaskas et al. 2020 used an adjusted p-value to correct for False Discovery Rate (FDR) using Benjamini-Hochberg method. After investigating about the method and the meaning I tried to integrate in my analyses. The option has to be marked in the ihh2ihs function (See ihs_sp.R)
 
 ### 1.3 XP-EHH analyses
 
-Discuss here (relying in previous studies) the difference btw this methods, what should we use and why.
+Discuss here (relying in previous studies) the difference btw this methods, what should we use and why. Taken from Talenti2017:
 
-Taken from Talenti2017:
+*The Rsb statistic compares EHH for the same SNP in two different populations and can provide evidence of selection given the presence of high-frequency or fixed alleles in one population but not on the other (Tang et al. 2007). Similarly, the XP-EHH detected selective sweeps in which one allele had undergone strong directional selection in one population while remaining polymorphic in the population as a whole (Sabeti et al. 2007)*
 
-The Rsb statistic compares EHH for the same SNP in two different populations and can provide evidence of selection given the presence of high-frequency or fixed alleles in one population but not on the other (Tang et al. 2007). Similarly, the XP-EHH detected selective sweeps in which one allele had undergone strong directional selection in one population while remaining polymorphic in the population as a whole (Sabeti et al. 2007)
-
-We finally decided to use XP-EHH (See xpehh_sp.R)
-
-```{bash}
-
-#Calculating XP-EHH
-screen -dmS "session_xpehh" Rscript ./xpehh_sp.R
-```
+We finally decided to use XP-EHH (See xpehh_sp.R). As with iHS, I used rehh R package. To run this in CESGA, I had to create a run_xpehh.sh script that specify to run the Rscript.
 
 ## 2. Lassip, a program for analysing HFS
 
@@ -133,6 +85,26 @@ for sp in ${species[@]}
 ```
 
 ### 2.2 saltiLASSI analyses
+
+```{bash}
+module load lassip
+
+species=(lc ll lp lr)
+CHR=($(cat $STORE2/reference_genomes/Felis_catus_Ref/Felis_catus.Felis_catus_9.0.dna.toplevel.fa.fai | cut -f 1 | uniq))
+
+for sp in ${species[@]}
+  do
+    echo "$sp"
+    for chr in ${CHR[@]:0:19} 
+      do
+        echo "trying salti-lassi in $chr"    
+        
+        ##AQUI##
+        ./lassip --vcf $LUSTRE/selection_scan/${chr}_${sp}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf --calc-spec --hapstats --salti --winsize 101 --winstep 10 --pop /home/llorenzo/rehh_test/${sp}_ind.txt --out /home/llorenzo/rehh_test/${chr}
+      done
+       /home/llorenzo/lassip-master/bin/linux/lassip --spectra /home/llorenzo/rehh_test/*${sp}.lassip.hap.spectra.gz --salti --out /home/llorenzo/rehh_test/${sp}_salti
+  done
+```
 
 ```{bash}
 #Create a screen in genomics-b server
