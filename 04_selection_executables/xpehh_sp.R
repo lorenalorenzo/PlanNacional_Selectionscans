@@ -7,8 +7,9 @@ print ("Starting xpehh analysis")
 library(vcfR)
 library(rehh)
 
-#dependencies
-path<- "/mnt/lustre/scratch/home/csic/bie/llf/selection_scan/"
+#Define paths
+path<- "/mnt/lustre/scratch/nlsas/home/csic/bie/llf/selection_scan/iHS/"
+
 #Name variables
 species<- c("lc", "ll", "lp", "lr")
 
@@ -44,32 +45,3 @@ write.table(ll_lr_xpehh, file=(paste0(path, "ll_lr_xpehh_scan")), sep="\t", row.
 
 lp_lr_xpehh <- ies2xpehh(scan_pop1 = lp_scan, scan_pop2 = lr_scan, popname1 = "LP", popname2 = "LR", p.adjust.method = "fdr")
 write.table(lp_lr_xpehh, file=(paste0(path, "lp_lr_xpehh_scan")), sep="\t", row.names = FALSE, quote = FALSE)
-
-#Plotting results
-print("Plotting results")
-
-pdf(paste0(path, "lc_ll_xpehh_manhattanplot_p.adjust.pdf"))
-manhattanplot(lc_ll_xpehh, pval=TRUE)
-dev.off()
-
-pdf(paste0(path, "lc_lp_xpehh_manhattanplot_p.adjust.pdf"))
-manhattanplot(lc_lp_xpehh, pval=TRUE)
-dev.off()
-
-pdf(paste0(path, "lc_lr_xpehh_manhattanplot_p.adjust.pdf"))
-manhattanplot(lc_lr_xpehh, pval=TRUE)
-dev.off()
-
-pdf(paste0(path, "ll_lp_xpehh_manhattanplot_p.adjust.pdf"))
-manhattanplot(ll_lp_xpehh, pval=TRUE)
-dev.off()
-
-pdf(paste0(path, "ll_lr_xpehh_manhattanplot_p.adjust.pdf"))
-manhattanplot(ll_lr_xpehh, pval=TRUE)
-dev.off()
-
-pdf(paste0(path, "lp_lr_xpehh_manhattanplot_p.adjust.pdf"))
-manhattanplot(lp_lr_xpehh, pval=TRUE)
-dev.off()
-
-print ("Saved plots")  
