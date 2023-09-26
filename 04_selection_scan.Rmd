@@ -1,24 +1,49 @@
 ---
-title: "Selection test"
-author: "Lorena Lorenzo Fernández"
-date: "25 March, 2021"
+title: "Positive selection genomic scan on lynxes"
+author: "Lorena Lorenzo"
+date: "`r format(Sys.time(), '%d-%b-%Y')`"
 output:
-csl: 
+  html_document:
+    df_print: paged
+  pdf_document: default
+  html_notebook:
+    code_folding: hide
 editor_options:
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
-## 1. Rehh, an R package for analysing iHS and XP-EHH
+## 1. Genomic scan methods
 
-### 1.1 Prepare data
+The aim of this chapter is to make an approach into positive selection among lynxes species through genomic scan methods. After an exhaustive revision of the state of art, we decided to focus on two footprints of positive selection across genome:
 
-Once I have filtered, phased and polarized data (see variant_filtering.md , phasing.md or polarization.md), I can start with selection analyses. The vcf file containing such information is:
+1.  Extended Haplotype Homozigosity
+
+2.  Haplotype Frequency Spectrum Distortion
+
+### 1.1 Data set-up
+
+Once I have filtered, phased and polarized data (see variant_filtering.md , phasing.md or polarization.md), I can start with selection analyses. For this step I am going to use both phased and non-phased vcfs (phased with iHS analyses and non-phased with saltiLASSI). Those files are:
 
 `${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf`
 
-After finding the error in the number variants, I had to run again selection analyses. As CSIC is under informatic attack, I don't have VPN access to genomic servers, so I am repeating the analysis in CESGA server. That's why I am changing parts of the code.
+`${sp}_goodsamples_filtered_polarized_variants_header_cat_ref.vcf`
 
-```{bash}
+Moreover, after phasing, allele count is not recalculated so that I used the following code for updating INFO field.
+
+```{bash eval=FALSE}
+species=(lc ll lp lr)
+
+for sp in ${species[@]}
+do
+cat ${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf | fill-an-ac | bgzip -c > ${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf.gz
+done
+
+```
+
+Both methods of selection need to be run per chr
+
+```{bash eval=FALSE}
+
 #Separate per chr sp vcf
 species=(lc ll lp lr)
 
@@ -26,34 +51,156 @@ for sp in ${species[@]}
 do
   echo "$sp"
   CHR=($(cat $STORE2/reference_genomes/Felis_catus_Ref/Felis_catus.Felis_catus_9.0.dna.toplevel.fa.fai | cut -f 1 | uniq))
-  for chr in ${CHR[@]:0:19}
+  for chr in ${CHR[@]:0:18}
     do
       echo "$chr"
       grep -E "^(#|${chr})" \
-      $LUSTRE/${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf \
-      > $LUSTRE/${chr}_${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf
+      $INPUT_FILE \
+      > $OUTPUT_FILE
       echo "Done $chr for $sp vcf"
     done
 done
+```
+
+#### 1.1.1. Control check: exploring missingness per sp
+
+Code available in missing_distribution.R and missing_distribution.sh
+
+```{bash eval=FALSE}
+
+for sp in ${species[@]}
+  do
+    echo "$sp"
+    vcftools \
+    --vcf ${sp}_goodsamples_cat_ref.filter8.vcf \
+    --missing-site \
+    --out ${sp}_missing_site_rate
+  done
+  
+  bcftools query -f '%CHROM %POS  %REF  %ALT [ %GT]\n' lr_goodsamples_cat_ref.filter8.vcf > lr_genotypes_cat_ref.filter8.vcf
 ```
 
 ### 1.2 iHS analyses
 
 For iHS analyses we decided to use the "rehh" package available for R. The entire code is available in ihs_sp.R. To run this in CESGA, I had to create a run_ihs.sh script that specify to run the Rscript.
 
-NOTE: We found that Kovalaskas et al. 2020 used an adjusted p-value to correct for False Discovery Rate (FDR) using Benjamini-Hochberg method. After investigating about the method and the meaning I tried to integrate in my analyses. The option has to be marked in the ihh2ihs function (See ihs_sp.R)
+```{r eval=FALSE}
+#!/usr/bin/env Rscript
 
-### 1.3 XP-EHH analyses
+print ("Starting ihs analysis")
 
-Discuss here (relying in previous studies) the difference btw this methods, what should we use and why. Taken from Talenti2017:
+#If run in CESGA, install packages before running the code in sbatch
+  #install.packages("vcfR")
+  #install.packages("rehh")
+  #The downloaded source packages are in ‘/tmp/Rtmp7TLpRA/downloaded_packages’
+  library(vcfR)
+  library(rehh)
 
-*The Rsb statistic compares EHH for the same SNP in two different populations and can provide evidence of selection given the presence of high-frequency or fixed alleles in one population but not on the other (Tang et al. 2007). Similarly, the XP-EHH detected selective sweeps in which one allele had undergone strong directional selection in one population while remaining polymorphic in the population as a whole (Sabeti et al. 2007)*
+#ENABLE command line arguments
+sp <- commandArgs(trailingOnly = TRUE)
 
-We finally decided to use XP-EHH (See xpehh_sp.R). As with iHS, I used rehh R package. To run this in CESGA, I had to create a run_xpehh.sh script that specify to run the Rscript.
+#sp<- c("lc", "ll", "lp", "lr") ###if I don't run the entire code
+#Create a df object empty
+df_total <- data.frame()
 
-## 2. Lassip, a program for analysing HFS
+#Define chromosome variable
+chromosomes <- c("A1", "A2", "A3", "B1", "B2", "B3", "B4", "C1", "C2", "D1", "D2", "D3", "D4", "E1", "E2", "E3", "F1", "F2")
 
-```{bash}
+#Define paths
+input_path<- "/mnt/lustre/scratch/nlsas/home/csic/bie/llf/selection_scan/chr_files/"
+output_path<- "/mnt/lustre/scratch/nlsas/home/csic/bie/llf/selection_scan/iHS/"
+
+#loop to bind each chr_sp_scan df in only one
+for (chr in chromosomes)
+{
+  print("Starting loop")
+ 
+  
+  #Read the subsetted vcf    
+  print ("Reading vcf")  
+  data<- data2haplohh(hap_file=paste0(input_path, chr, "_", sp, "_","goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf"), polarize_vcf= "FALSE", allele_coding="01", chr.name=chr, vcf_reader= "vcfR")
+  
+  #Scan the genome 
+  print ("Scanning vcf")  
+  data_frame<- scan_hh(data) 
+  write.table(data_frame, file=(paste0(output_path, chr, "_", sp, "_", "scan")))
+  print ("Saved scan data frame")
+  
+  df<- read.csv(paste0(output_path, chr, "_", sp, "_", "scan"), sep=" ")
+  df_total<- rbind(df_total,df)
+  print("Added one more chr in the total df")
+}
+
+#Save the sp_scan
+write.table(df_total, file=(paste0(output_path, sp, "_scan")), sep="\t", row.names = FALSE, quote = FALSE)
+
+#Calculate genome-wide iHS values
+print ("Calculating ihs") 
+wgscan.ihs<- ihh2ihs(df_total, (round((min(df_total$FREQ_A) * 2), 2))) 
+write.table(wgscan.ihs$ihs, file=(paste0(output_path, sp, "_ihs_scan")), sep="\t", row.names = FALSE, quote = FALSE)
+print ("Saved ihs data frame")
+```
+
+### 1.2 XP-EHH analyses
+
+As with iHS, I used rehh R package. The entire code is available in xpehh_sp.R. To run this in CESGA, I had to create a run_xpehh.sh script that specify to run the Rscript.
+
+```{r eval=FALSE}
+#!/usr/bin/env Rscript
+
+print ("Starting xpehh analysis")
+
+#install.packages("vcfR")
+#install.packages("rehh")
+library(vcfR)
+library(rehh)
+
+#Define paths
+path<- "/mnt/lustre/scratch/nlsas/home/csic/bie/llf/selection_scan/iHS/"
+
+#Name variables
+species<- c("lc", "ll", "lp", "lr")
+
+#Read per sp scan
+  for(sp in species) 
+    {
+    print(paste("Reading", sp, "scan"))
+    scan<- read.csv(paste0(path, sp, "_scan"), sep="\t")
+    assign(paste0(sp, "_scan"), scan)
+  }
+
+#Calculating XP-EHH
+print ("Calculating xpehh") 
+
+lc_ll_xpehh <- ies2xpehh(scan_pop1 = lc_scan, scan_pop2 = ll_scan, popname1 = "LC", popname2 = "LL", p.adjust.method = "fdr")
+write.table(lc_ll_xpehh, file=(paste0(path, "lc_ll_xpehh_scan")), sep="\t", row.names = FALSE, quote = FALSE)
+
+lc_lp_xpehh <- ies2xpehh(scan_pop1 = lc_scan, scan_pop2 = lp_scan, popname1 = "LC", popname2 = "LP", p.adjust.method = "fdr")
+write.table(lc_lp_xpehh, file=(paste0(path, "lc_lp_xpehh_scan")), sep="\t", row.names = FALSE, quote = FALSE)
+
+
+lc_lr_xpehh <- ies2xpehh(scan_pop1 = lc_scan, scan_pop2 = lr_scan, popname1 = "LC", popname2 = "LR", p.adjust.method = "fdr")
+write.table(lc_lr_xpehh, file=(paste0(path, "lc_lr_xpehh_scan")), sep="\t", row.names = FALSE, quote = FALSE)
+
+
+ll_lp_xpehh <- ies2xpehh(scan_pop1 = ll_scan, scan_pop2 = lp_scan, popname1 = "LL", popname2 = "LP", p.adjust.method = "fdr")
+write.table(ll_lp_xpehh, file=(paste0(path, "ll_lp_xpehh_scan")), sep="\t", row.names = FALSE, quote = FALSE)
+
+
+ll_lr_xpehh <- ies2xpehh(scan_pop1 = ll_scan, scan_pop2 = lr_scan, popname1 = "LL", popname2 = "LR", p.adjust.method = "fdr")
+write.table(ll_lr_xpehh, file=(paste0(path, "ll_lr_xpehh_scan")), sep="\t", row.names = FALSE, quote = FALSE)
+
+
+lp_lr_xpehh <- ies2xpehh(scan_pop1 = lp_scan, scan_pop2 = lr_scan, popname1 = "LP", popname2 = "LR", p.adjust.method = "fdr")
+write.table(lp_lr_xpehh, file=(paste0(path, "lp_lr_xpehh_scan")), sep="\t", row.names = FALSE, quote = FALSE)
+
+```
+
+### 1.3. salti-LASSI
+
+Here I am going to use saltiLASSI to analyse selection from haplotype frequency spectrum (HFS). I used windows of 101 SNPS with a 50 slide. The entire code is available in lassi.sh.
+
+```{bash eval=FALSE}
 
 species=(lc ll lp lr)
 
@@ -64,323 +211,651 @@ for sp in ${species[@]}
     sed "s/$/\t${sp}/" <(grep "#CHR" $LUSTRE/${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf | tr "\t" "\n" | grep ${sp})  > $LUSTRE/selection_scan/${sp}_ind.txt
     sbatch lassi.sh $sp
   done  
+  
+species=(lc ll lp lr)
+
+for sp in ${species[@]}
+  do
+  sbatch lassi.sh $sp
+  done
 ```
 
-## 3. Ploting results
+## 2. Results
 
-See plot_ihs_lassi.R
+### 2.1 Representation of iHS and salti-LASSI results
 
-After this, I want to merge every overlapping outlier window with bedtools merge:
+For graphics we are going to use R. First thing is to run packages needed and set directories.
 
-```{bash}
+```{r}
+#install.packages
+library(tidyverse)
+library(rehh)
+library(RColorBrewer)
+library(cowplot)
+library(ggpubr)
+library(grid)
+library(ggrepel)
+
+#Set directories
+path<- "/Users/lorenalorenzo"
+files<- "/files/"
+plots<- "/plots/"
+
+#Name the variables
+species<- c("lc", "ll", "lp", "lr")
+
+names <- c("lc" = "Lynx canadensis",
+            "lr" = "Lynx rufus",
+            "ll" = "Lynx lynx",
+            "lp" = "Lynx pardinus")
+
+chr <- c( "A1", "A2", "A3", "B1", "B2", "B3", "B4", "C1", "C2", "D1", "D2", "D3", "D4", "E1", "E2", "E3", "F1", "F2", "X")
+
+colors <- c("lc"= "#AB97B7",
+            "ll"= "#F2AB5A",
+            "lp"="#EB595F",
+            "lr"="#71C178")
+#print(as.character(names[species]))
+#print(as.character(colors[species]))
+
+#set X axis with chr_size dataframe (for plotting)
+    axis_set <- read.table(paste0(path, files, "chr_size.txt"), sep="\t", col.names=c("chr", "size")) %>%
+                 mutate(center = size/2)
+    #Group by chr
+    data_axis <- axis_set %>%
+                  mutate(size_cum = lag(cumsum(as.numeric(size)), default = 0)) %>%
+                  rowwise() %>%
+                  mutate(center_cum = sum(center, size_cum))     
+```
+
+In the following code I prepare iHS and saltiLASSI results for representation with cutoffs.
+
+```{r}
+
+for (sp in species)
+{
+
+# iHS results -------------------------------------------------------------
+  ihs_scan <- read.table(paste0(path, files, sp , "_ihs_scan"), sep="\t", header= TRUE, col.names = c("chr", "pos", "ihs", "pval"))
+  print("Read ihs_scan data")
+  
+  #Group by chr
+  data_cum <- ihs_scan %>% 
+    group_by(chr) %>% 
+    summarise(max_bp = max(pos)) %>%
+    mutate(bp_add = lag(cumsum(max_bp), default = 0)) %>% 
+    select(chr, bp_add)
+  
+  data_ihs <- ihs_scan %>% 
+    inner_join(data_cum, by = "chr") %>% 
+    mutate(bp_cum = pos + bp_add) %>%
+    na.omit() %>%
+    mutate(abs_ihs= abs(ihs)) %>% #absolute value score of iHS
+    mutate (dataset="|iHS|")  #for facet_grid
+  
+  axis_set <- data_ihs %>% 
+    group_by(chr) %>% 
+    summarize(center = mean(bp_cum))
+  
+  print("Data set")
+    
+write.table(data_ihs, file=(paste0(path, files, sp, "data_ihs")), sep="\t", row.names = FALSE, quote = FALSE)
+  
+  #explore ihs distribution (gaussian)
+  # pdf(paste0(path, plots, sp,"_distplot.pdf"), width=10, height=5)
+  # distribplot(ihs_scan$IHS, xlab= paste(sp, "iHS"), qqplot = TRUE)
+  #dev.off()
+  
+## define outliers ----------------------------------------------------------------
+  
+  ihs_outliers<- data_ihs %>% filter(abs_ihs >= 4)
+  print(length(ihs_outliers$abs_ihs))
+  
+  write.table(ihs_outliers, file=(paste0(path, files, sp, "_ihs_4outliers")), sep="\t", row.names = FALSE, quote = FALSE)
+  print("outliers df saved")
+  
+  #Save as 0-based bed file
+ bed_4 <- ihs_outliers %>% mutate(start= pos - 1) %>% select(c(1,9,2,3,7))
+ write.table(bed_4, file=(paste0(path, files, sp, "_ihs_4outliers.bed")), sep="\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+  
+# saltiLASSI results -----------------------------------------------------------
+  print("Starting plotting LASSI results code")
+
+  #Read data
+  lassi_scan<- read.table(paste0(path, files, sp, "_salti.lassip.hap.out"), sep="\t", header=T)
+  print(paste("Read data for", sp))
+  
+  #Group by chr
+  data_cum <- lassi_scan %>% 
+    group_by(chr) %>% 
+    summarise(max_bp = max(pos)) %>%
+    mutate(bp_add = lag(cumsum(max_bp), default = 0)) %>% 
+    select(chr, bp_add)
+  
+  data_lassi <- lassi_scan %>% 
+    inner_join(data_cum, by = "chr") %>% 
+    mutate(bp_cum = pos + bp_add) %>%
+    mutate(dataset="saltiLASSI")
+  
+  axis_set <- data_lassi %>% 
+    group_by(chr) %>% 
+    summarize(center = mean(bp_cum))
+  
+  print("Acumulated by chr")
+  
+  
+  #Change the "sp_L" column name to another in order to make it easier to manage
+  colnames(data_lassi)[12]<- "statistic"
+  
+  print("rename sp_L column to statistic")
+  
+  write.table(data_lassi, file=(paste0(path, files, sp, "data_lassi")), sep="\t", row.names = FALSE, quote = FALSE)
+  
+  #Explore statistic distribution
+    #pdf(paste0(path, plots, sp,"_L_statistic_distplot.pdf"), width=10, height=5)
+  
+    #print(ggplot(data_lassi, aes(x= statistic)) +
+         # geom_freqpoly(binwidth=10) + 
+         # ylim(0, 20000) +
+        #  labs (title=sp))
+  
+   #dev.off()
+  
+    #print("distribution plot saved")
+  
+## define outliers ---------------------------------------------------------
+  #cut-off 95%
+  print(paste(sp, round(length(data_lassi$statistic) * 0.05), "top 5% values"))
+  cut_95 <- sort(data_lassi$statistic)[round(length(data_lassi$statistic) * 0.95)]
+  print(paste(sp, cut_95, "5% cut-off" ))
+  
+  lassi_outliers_95<- data_lassi %>% filter(statistic >= cut_95)
+  write.table(lassi_outliers_95, file=(paste0(path, files, sp, "_lassi_5%outliers")), sep="\t", row.names = FALSE, quote = FALSE)
+  print("outliers df saved")
+  
+  bed_95 <- lassi_outliers_95  %>% select(c(1,2,3,12))
+  write.table(bed_95, file=(paste0(path, files, sp, "_lassi_5%outliers.bed")), sep="\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+}  
+```
+
+```{r echo = FALSE, fig.height = 10, fig.width = 15}
+# plot iHS & lassi --------------------------------------------------------
+for (sp in species)
+{
+  
+#Read data
+data_ihs<- read.table(paste0(path, files, sp, "data_ihs"), header = TRUE)
+data_lassi<- read.table(paste0(path, files, sp, "data_lassi"), header = TRUE)
+
+
+p<- 
+  ggplot() +
+        geom_point(data_ihs, mapping=aes(x= bp_cum, y=abs(ihs), alpha = 0.5, color = as_factor(chr))) + 
+        scale_x_continuous(label = data_axis$chr, breaks = data_axis$center_cum) +     
+       geom_hline(yintercept= 4, color="red", linetype="dashed") +
+       geom_hline(yintercept= -4, color="red", linetype="dashed") +
+       ylab ("iHS") +
+       theme_minimal() +
+       theme(axis.title.x = element_blank(), legend.position = "none", 
+             axis.text=element_text(size=12), axis.title=element_text(size=15,face="bold")) +
+       scale_color_manual(values=rep(c(as.character(colors[sp]), "#CCD1D1"), 18 ))
+
+
+
+q<- ggplot() +
+       geom_point(data_lassi, mapping=aes(x = bp_cum, y = statistic, alpha = 0.5, color = as_factor(chr))) +   
+       geom_hline(yintercept= cut_95, color="red", linetype="dashed") +
+       scale_x_continuous(label = data_axis$chr, breaks = data_axis$center_cum) +
+       ylab ("Λ") +
+       theme_minimal() +
+       theme(axis.title.x = element_blank(), legend.position = "none", 
+             axis.text=element_text(size=12), axis.title=element_text(size=15,face="bold")) +
+       scale_color_manual(values=rep(c(as.character(colors[sp]), "#CCD1D1"), 18 ))
+
+r<- ggarrange(p,q, nrow= 2, ncol= 1) 
+
+r <- annotate_figure(r,
+                top = text_grob(as.character(names[sp]), face = "italic", size = 30),
+                #left = text_grob("Statistic value", color = "grey", rot = 90),
+                )
+assign(paste0(sp, "_plot"), r )
+
+}
+
+## customize
+s<- ggarrange(lc_plot, ll_plot, lp_plot, lr_plot, 
+     ncol= 2, nrow= 2,
+     common.legend= TRUE,
+       legend="bottom")  
+
+print(s)
+```
+
+### 2.2 Intersect between methods
+
+Once saved the outliers bed from iHS and saltiLASSI, we need the overlap of both methods. For doing that, here we are using bedtools. Firstly, I merge every overlapping outlier window from lassi. Then, we intersect this windows with the outlier SNPs from iHS to get putative selected genomic REGIONS. Use 5% as cutoff for lassi because after that we are going to rank 10 best regions.
+
+```{bash eval=FALSE}
+module load bedtools
+
 species=(lc ll lp lr)
 
 for sp in ${species[@]}
   do
     echo "$sp"
-    bedtools merge -i ${sp}_99outliers.bed -c 1 -o count \
-    > ${sp}_99outliers_merged.bed
-  done  
+       #merge every overlapping outlier window in LASSI 
+       bedtools merge \
+       -i ${sp}_lassi_5%outliers.bed \
+       -c 1 \
+       -o count \
+       > ${sp}_merged_tmp
+       echo "$sp merged"
+       
+       #intersect with iHS snps so the result are GENOMIC REGIONS under putative selection
+       bedtools intersect \
+       -a ${sp}_merged_tmp \
+       -b ${sp}_ihs_4outliers.bed \
+       -c \
+       > ${sp}_intersected_tmp
+       echo "$sp intersected"
+       
+       #add snp density        
+       bedtools intersect \
+       -a ${sp}_intersected_tmp \
+       -b $LUSTRE/vcfs/${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf \
+       -c \
+     > ${sp}_snps_density_tmp
+     
+       #calculate lassi values for those regions
+       bedtools map \
+       -a ${sp}_snps_density_tmp\
+       -b ${sp}_lassi_5%outliers.bed \
+       -F 1 \
+       -c 4 \
+       -o mean,max,sum \
+       > ${sp}_lassi_tmp
+       echo "$sp lassi statistics calculated"
+       
+       #calculate iHS values for those regions
+       bedtools map \
+       -a ${sp}_lassi_tmp \
+       -b ${sp}_ihs_4outliers.bed \
+       -F 1 \
+       -c 5 \
+       -o mean,max,sum \
+       > ${sp}_lassi_ihs_tmp
+       echo "$sp ihs statistics calculated"
+       
+       #remove 0's (no SNPS)
+       awk -F '\t' '$5 != 0' ${sp}_lassi_ihs_tmp > ${sp}_lassi_ihs_regions_tmp
+       echo "$sp regions with 0 snps intersected removed"
+       
+       #print a header (column names)
+       echo -e "chr start end windows snps snps_density lassi_mean lassi_max lassi_sum ihs_mean ihs_max ihs_sum" | cat - ${sp}_lassi_ihs_regions_tmp | tr " " "\t" > ${sp}_lassi_ihs_regions 
+       
+  ######Cross bed results with annotation file (gff3)    
+      #match selected regions with genome annotation
+       bedtools intersect \
+         -a ${sp}_lassi_ihs_regions_tmp \
+         -b $STORE2/reference_genomes/Felis_catus_Ref/Felis_catus.Felis_catus_9.0.97.gff3 \
+         -wa -wb \
+         > ${sp}_annotated_tmp 
+        echo "$sp annotated"
+        
+      #filter only genes
+      awk '$15=="gene"' ${sp}_annotated_tmp > ${sp}_gene_tmp
+      echo "$sp gene filtered"
+    
+    #get only interesting columns
+    cut -f-12,16,17,21- ${sp}_gene_tmp | tr ' ' '\t' > ${sp}_filtered_tmp
+    
+    #ensembl id and gene name as column data
+    cut -d';' -f1,2 ${sp}_filtered_tmp | tr ';' '\t'  | awk '{if ($16 ~ /Name=[[:alnum:]]/) $16=$16; else $16="NA"; print $0}' > ${sp}_names_tmp 
+    
+    #cut extra-info from ens code and gene name columns
+    paste <(cut -d" " -f-14 ${sp}_names_tmp) <(cut -d" " -f15 ${sp}_names_tmp | cut -d":" -f2) <(cut -d" " -f16 ${sp}_names_tmp | cut -d"=" -f2) |  tr "\t" " "  >> ${sp}_columns_tmp
+    
+    #print a header (column names)
+    echo -e "chr start end windows snps snps_density lassi_mean lassi_max lassi_sum ihs_mean ihs_max ihs_sum gene_start gene_end ensembl_id gene_name" | cat - ${sp}_columns_tmp > ${sp}_genomic_regions_annotated
+      
+        #remove temporal files
+       rm *tmp
+    done
 ```
 
-### 3.1 Intersect between the two methods
+### 2.3 Representation of the intersection
 
-```{bash}
+For representation purposes, I want to merge lassi outliers windows data with intersected outilies regions data.
+
+```{bash eval=FALSE}
+module load bedtools
+
 species=(lc ll lp lr)
 
+#Merge info about lassi results and the final table of genomics regions under selection
 for sp in ${species[@]}
   do
     echo "$sp"
     bedtools intersect \
-    -a /home/llorenzo/selection_scan/lassi_test/${sp}_99outliers_merged.bed \
-    -b /home/llorenzo/selection_scan/rehh_test/${sp}_ihs_99.9outliers.bed \
+    -a <(grep -v "chr" saltiLASSI/${sp}_salti.lassip.hap.out | cut -f1,2,3,5,12) \
+    -b <(grep -v "chr" ${sp}_5%outliers_table) \
     -wao \
-    > /home/llorenzo/selection_scan/${sp}_outliers_ihslassi_intersect.bed
+    > ${sp}_results_table_representation
   done  
 ```
 
-Once did this I am going to plot shaded areas from LASSI outliers over the iHS plot results
+```{r  , echo = FALSE, fig.height = 5, fig.width = 15}
+## plot results --------------------------------------------------------
+for (sp in species)
+{
+  #Read the data
+  data_all <- read.table(paste0(path,files, sp, "_results_table_representation"), sep="\t", header= FALSE, na.strings = ".", col.names = c("chr", "start", "end", "pos", "statistic", "r_chr", "r_start", "r_end", "n_windows", "n_snps", "weighted_statistic", "window_size", "weight", "bp_overlap"))   %>% 
+    inner_join(data_axis, by = "chr") %>% 
+    mutate(bp_cum = end + size_cum) %>%
+    transform(as.numeric(weight)) %>%
+    mutate(weight= coalesce(weight, 0)) %>%
+    mutate(intersect= ifelse(weight == 0, "lassi outliers", "intersect outliers"))
+ 
+  #set the cut-off
+  data_lassi<- read.table(paste0(path, files, sp, "data_lassi"), header = TRUE)
+  cut_95 <- sort(data_lassi$statistic)[round(length(data_lassi$statistic) * 0.95)]
+  print(paste(sp, round(length(data_lassi$statistic) * 0.05), "top 5% values"))
+  print(paste(sp, cut_95, "5% cut-off" ))
 
-```{r}
 
-#Name the variables
-species<- c("lc", "ll", "lp", "lr")
+p<-  ggplot() +
+      geom_point(data_all, mapping=aes(x = bp_cum, y = statistic, color = intersect, shape= intersect, size= intersect)) +
+      geom_hline(yintercept= cut_95, color="red", linetype="dashed")  +  
+      scale_x_continuous(label = data_axis$chr, breaks = data_axis$center_cum) +
+      labs (x="Chromosome", y="Λ", title = as.character(names[sp])) +
+      scale_shape_manual(values=c(8, 1)) +
+      scale_alpha(range = c(0.5, 1), guide= "none") +
+      scale_color_manual(values= c(as.character(colors[sp]), "#C8D3D3")) +
+      scale_size_manual(values=c(3, 1)) +
+      theme_minimal() +
+      theme(
+        axis.text=element_text(size=15),
+        axis.title=element_text(size=20),
+        plot.title = element_text(face = "italic", size=30),
+        legend.title = element_text(size=20),
+        legend.text = element_text(size=15),
+          )
 
+  assign(paste0(sp, "_plot"), p )
+  assign(paste0(sp, "_data"), data_all )
+  }  
+
+
+## customize
+q<- ggarrange(lc_plot, ll_plot, lp_plot, lr_plot, 
+     ncol= 2, nrow= 2, common.legend= TRUE, legend="bottom") 
+
+print(q)
+
+ggsave(filename = paste0(path, plots, "outliers_selection.png"), plot= q, width= 25, height = 10)
+```
+
+CLARIFICATION: In the plot we can see \* below the cutoff. That's because another overlapping window passed the cutoff value, so now the region includes windows that by its own didn't were outliers.
+
+Now I want to explore regions defined in a chr
+
+```{r , echo = FALSE, fig.height = 5, fig.width = 15}
+
+# Make a dictionary to associate species with the data frames
+data_dict = list()
+  data_dict[["lc"]] = lc_data
+  data_dict[["ll"]] = ll_data
+  data_dict[["lp"]] = lp_data
+  data_dict[["lr"]] = lr_data
+
+## Make a dictionary to get the more relevant chr and associate with the species
+chr_dict = list()
+    chr_dict[["lc"]] = c( "D3", "E1", "C2", "F1", "D4", "B1", "E2")
+    chr_dict[["ll"]] = c( "B1", "D3", "E3", "A1", "A3", "C1", "B2")
+    chr_dict[["lp"]] = c( "D3", "A1", "B4", "D1", "A3", "B1", "A2", "B3", "B2")
+    chr_dict[["lr"]] = c( "A1", "B1", "D3", "D2", "E3", "D4", "E1")
 
 for (sp in species)
 {
-  ###LASSI###
-  #Read the data
-  path <- "/home/llorenzo/selection_scan/lassi_test/"
-  lassi_outliers <- read.table(paste0(path, sp, "_99outliers_merged.bed"), sep="\t")
-  colnames(lassi_outliers) <- c("chr", "start", "end", "n_windows")
+  # Get the df and the chr list for the current species in the loop
+  data <- data_dict[[sp]]
+  chr <-  chr_dict[[sp]] 
+  
+  # List objects in the current environment matching the pattern "*_plot"
+  plot_names <- ls(pattern = "._plot$")
+
+  # Remove objects with names matching the pattern (this is important for the loop)
+  rm(list = plot_names) 
+  
+  for (i in chr) 
+  {
+  chr_data<- data %>%
+    filter(chr == i)   
+
+     p<- ggplot() +
+       geom_point(chr_data, mapping=aes(x = bp_cum, y = statistic, 
+                    color = intersect, shape= intersect, size= intersect)) +
+       geom_hline(yintercept= cut_95, color="red", linetype="dashed") +  
+       xlab (i) +
+       scale_shape_manual(values=c(8, 1)) +
+       scale_alpha(range = c(0.5, 1), guide= "none") +
+       scale_color_manual(values= c(as.character(colors[sp]), "#CCD1D1")) +
+       scale_size_manual(values=c(3, 1)) +
+       theme(legend.title = element_blank(), legend.position ="none", axis.title.y.left = element_blank())
+      
+    assign(paste0(i, "_plot"), p )
     
+  }
+  
+  ## customize the plot
+  plot_names <- ls(pattern = "._plot$")  
+  plot_list <- lapply(plot_names, get)
+  q<- ggarrange(plotlist = plot_list, widths = c(1))
+  q <- annotate_figure(q, top = text_grob(as.character(names[sp]), face = "italic", size = 30))
+  
+  print(q)
+}
+
+```
+
+### 2.3 Representation of XP-EHH
+
+```{r , echo = FALSE, fig.height = 5, fig.width = 15}
+
+# XP-EHH results -------------------------------------------------------------
+#Read the data
+# List files in the directory
+file_list <- list.files(paste0(path, files), pattern = ".xpehh_scan$", full.names = FALSE)
+
+#Make a dictionary to associate file names with species
+###################AQUI ESTOY!!################
+xpehh_dict = list()
+  xpehh_dict[["lc"]] = lc_data
+  xpehh_dict[["ll"]] = ll_data
+  xpehh_dict[["lp"]] = lp_data
+  xpehh_dict[["lr"]] = lr_data
+
+for (i in file_list)
+{  
+  data <- read.table(paste0( path, files, i), sep="\t", header= TRUE, col.names = c("chr", "pos", "xpehh", "pval"))
+  
   #Group by chr
-  data_lassi_cum <- lassi_outliers %>% 
+  data_cum <- data %>% 
     group_by(chr) %>% 
-    summarise(max_bp = max(end)) %>%
-    mutate(bp_add = lag(cumsum(max_bp), default = 0)) %>% 
+    summarise(max_bp = max(pos)) %>%
+    mutate(bp_add = lag(cumsum(as.numeric(max_bp)), default = 0)) %>% 
     select(chr, bp_add)
-
-  data_lassi <- lassi_outliers %>% 
-    inner_join(data_lassi_cum, by = "chr") %>% 
-    mutate(bp_start_cum = start + bp_add) %>%
-    mutate(bp_end_cum = end + bp_add) %>%
-    na.omit()
   
-  ###iHS###
-  #Read the data
-  path <- "/home/llorenzo/selection_scan/rehh_test/"
-  ihs_scan <- read.table(paste0(path, sp, "_ihs_scan"), sep="\t", header= TRUE)
-
-  #Group by chr
-  data_ihs_cum <- ihs_scan %>% 
-    group_by(CHR) %>% 
-    summarise(max_bp = max(POSITION)) %>%
-    mutate(bp_add = lag(cumsum(max_bp), default = 0)) %>% 
-    select(CHR, bp_add)
-
-  data_ihs <- ihs_scan %>% 
-    inner_join(data_ihs_cum, by = "CHR") %>% 
-    mutate(bp_cum = POSITION + bp_add) %>%
-    na.omit()
-
-  ihs_axis_set <- data_ihs %>% 
-    group_by(CHR) %>% 
-    summarize(center = mean(bp_cum))
-
-  #get the 0.1% of data
-  cut_99.9 <- quantile(data_ihs$LOGPVALUE,probs=0.999,na.rm=T)
+  data_xpehh <- data %>% 
+    inner_join(data_cum, by = "chr") %>% 
+    mutate(bp_cum = pos + bp_add) %>%
+    na.omit() %>%
+    subset(xpehh > 0) %>%
+    mutate(sp= i)
   
-  print(paste(sp, round(length(data_ihs$LOGPVALUE) * 0.001), "top 0.1% values"))
-  print(paste(sp, cut_99.9, "0.1% cut-off" ))
-  
-  print("Cut-offs done")
-  
-#Plot ihs with lassi windows  
-path<- "/home/llorenzo/selection_scan/"
-pdf(paste0(path, sp, "_ihs_lassi_cutoffs_manhattanplot.pdf"), width=10, height=5)
-
-print(ggplot() +
-        geom_point(data_ihs, mapping=aes(x = bp_cum, y = LOGPVALUE, color = as_factor(CHR)), alpha = 0.5) +
-        geom_hline(yintercept= cut_99.9, color="grey", linetype="dashed") +
-        geom_rect(data_lassi, mapping=aes(xmin = bp_start_cum, xmax = bp_end_cum, ymin = -Inf, ymax = Inf), alpha = 0.4, color = as_factor(CHR)) +
-        scale_x_continuous(label = axis_set$CHR, breaks = axis_set$center) +
-        labs (x="Chromosome", y="p-adjust iHS", title=sp ) +
-        theme(plot.title = element_text(hjust = 1, vjust = -10), legend.position = "none"))
-
-dev.off()
-
-print("Plot done and saved")
-}
+  p<- ggplot() +
+    geom_point(data_xpehh, mapping=aes(x= bp_cum, y=pval, alpha = 0.5, color = as_factor(sp))) + 
+     scale_x_continuous(label = data_axis$chr, breaks = data_axis$center_cum) +
+     geom_hline(yintercept= 2, color="red", linetype="dashed") +
+     labs (x= "chromosomes", y= "xp-ehh p-value FDR", title= i) +
+     theme (legend.title = element_blank(), legend.position ="none", plot.title = element_text(face = "italic", size= 30))
+ 
+  print(p) 
+}    
+####NOTA:
+ # Crear una columna color para cuando se cumplan las condiciones de outlier + combo
+ # Poner barritas para delimitar los cromosomas
+ # Solucionar las combinaciones de + y +
 ```
 
-Any conclusion can be extracted from this plot. I represented all SNPs from iHS and windows can rarely be seen as they are really small in contrast with the chr length, so as a result, we can only see a vertical line representing the window and lots of points representing SNPs.
+## 3. Interpretation
 
-So, the next thing I am going to try is to plot per chr outliers windows from saltilassi and the outliers SNPs from iHS.
+### 3.1 Looking for enrichment pathways
+
+We tried to find out pathways or functions specifically being under selection pressure among the putative selected regions (those overpassing the filter for both methods). Unfortunately, GO enrichment analyses done in PANTHER results in no enrichment pathway in no species.
+
+### 3.2 Top regions
+
+As we didn't get any significant result in the enrichment analyses, we decided to look for the most important regions under selection in each species. For doing so, we had to decided what parameter describes better which regions are "the most important ones".
+
+From the resulting table I get the top 10 putative regions per sp.
 
 ```{r}
-#Name the variables
-species<- c("lc", "ll", "lp", "lr")
-
-
+#Read data
 for (sp in species)
 {
-  ###LASSI###
-  #Read the data
-  path <- "/home/llorenzo/selection_scan/lassi_test/"
-  lassi_outliers <- read.table(paste0(path, sp, "_99outliers_merged.bed"), sep="\t") 
-  colnames(lassi_outliers) <- c("CHR", "START", "END", "N_WINDOWS")
-  lassi_outliers <-  filter(lassi_outliers, CHR != "X")
-  print("Reading lassi results done")
-  
-  ###iHS###
-  #Read the data
-  path <- "/home/llorenzo/selection_scan/rehh_test/"
-  ihs_outliers <- read.table(paste0(path, sp, "_ihs_99.9outliers"), sep="\t", header= TRUE)
-  colnames(ihs_outliers) <- c("CHR", "POS", "IHS", "PVAL")
-  print("Reading iHS results done")
-  
-  #Plot ihs with lassi windows  
-#Define chromosome variable
-chromosomes <- c("A1", "A2", "A3", "B1", "B2", "B3", "B4", "C1", "C2", "D1", "D2", "D3", "D4", "E1", "E2", "E3", "F1", "F2")
+data<- read.table(paste0(path, files, sp, "_lassi_ihs_regions"), sep="\t", header=T)
+assign(paste0(sp, "_results"), data )
 
-#loop per chr plot
-for (chr in chromosomes)
-{
-chr_data_ihs <- ihs_outliers %>%
-  filter(CHR== chr)
-chr_data_lassi <- lassi_outliers %>%
-  filter(CHR== chr)
-    
-path<- "/home/llorenzo/selection_scan/"
-pdf(paste0(path, chr, "_", sp, "_ihs_lassi_manhattanplot.pdf"), width=10, height=5)
+data_top10<- data %>%
+  arrange(desc(lassi_max)) %>%
+  slice(1:10)
+#write.table(data_top10, file=(paste0(path, files, sp, "_top10")), sep="\t",row.names = FALSE, quote = FALSE)
 
-print(ggplot() +
-        geom_point(chr_data_ihs, mapping=aes(x = POS, y = PVAL, alpha = 0.5)) +
-        geom_rect(chr_data_lassi, mapping=aes(xmin = START, xmax = END, ymin = -Inf, ymax = Inf), alpha = 0.4) +
-        labs (x="Chromosome", y="p-adjust iHS", title=sp ) +
-        theme(plot.title = element_text(hjust = 1, vjust = -10), legend.position = "none"))
-
-dev.off()
-
-print("Plot done and saved")
+assign(paste0(sp, "_top10"), data_top10 )
 }
-}
+
 ```
 
-By doing this I discovered that 0.1% of SNPS and 1% of windows is very restrictive. I am going to try with 1% of SNPS and 5% of windows. Well maybe is only in lc
+In order to explore the distribution of the lassi statistic in each of the 10 top regions, I firstly get the statistic value in every window of the top region and then represent it.
 
-PROBLEM FOUND: Lp has aprx. 8.2M variants, which is much more than expected... I went back to the sp_filter8.vcf and discover that by this point lp has 1.2M variants which is far more feasible. Now I have to traceback where I did it wrong (but unluckily this week I don't have access to CESGA, due to CSIC-cibersecurity problems)
+```{bash eval=FALSE}
+module load bedtools
 
-### 3.3.1 PCA before and after phasing
-
-```{bash}
-###PCA
-#Repeat plink per sp.
 species=(lc ll lp lr)
 
-for i in ${species[@]}
+for sp in ${species[@]}
   do
-    VCF=/home/llorenzo/selection_scan/rehh_test/${i}_goodsamples_filtered_phased_polarized_ACfiltered_header_cat_ref.vcf
-    # perform linkage pruning - i.e. identify prune sites
-    plink_1.9 --vcf $VCF --double-id --allow-extra-chr \
-    --set-missing-var-ids @:# \
-    --indep-pairwise 50 10 0.1 --out ${i}_goodsamples_filtered_phased_polarized_cat_ref
-    #run PCA in the subset
-    plink_1.9 --vcf $VCF --double-id --allow-extra-chr --set-missing-var-ids @:# \
-    --extract ${i}_goodsamples_filtered_phased_polarized_cat_ref.prune.in \
-    --make-bed --pca --out ${i}_goodsamples_filtered_phased_polarized_cat_ref
+    echo "$sp"
+    #convert into a bed file
+    awk '{printf("%s\t%d\t%d\t%d\t%d\n", $1, $2, $3, $5, $12)}' saltiLASSI/${sp}_salti.lassip.hap.out  > ${sp}_tmp
+
+    #intersect btw lassi values and genomic regions with 100% coincidence (only windows embedded in the genomic regions are reported)
+       bedtools intersect -wa -wb \
+       -a <(grep -v "chr" ${sp}_tmp) \
+       -b <(grep -v "chr" ${sp}_top10 | cut -f1-3) \
+       -f 1.0 \
+       > ${sp}_lassi_top10  
+       echo "$sp intersected"
+    
+  #remove temporal files
+  rm *tmp
   done
 
-
 ```
 
-```{r}
-library(tidyverse)
-library(viridis)
+Now I want to represent each top10 genomic regions and the correspondent lassi values. Taking into account I previously calculated the genes under the genomic outlier regions, we can add this info to the plot
 
-
-species<- c("lc", "ll", "lp", "lr")
-path <- "~/"
-
-##PREPHASED PCAs##
+```{r , echo = FALSE, fig.height = 10, fig.width = 15}
+  #Read data
 for (sp in species)
 {
-  #Read pre-phased data
-  # import eigen vec and val
-pca <- read_table(paste0(path, sp, "_goodsamples_cat_ref.eigenvec"),
-                   col_names = FALSE)
-eigenval <- scan(paste0(path, sp, "_goodsamples_cat_ref.eigenval"))  
+lassi<- read.table(paste0(path, files, sp, "_lassi_top10"), sep="\t", header=F, col.names = c("chr", "w_start", "w_end", "pos", "lassi", "chr_r", "start", "end"))
 
-# remove nuisance column
-pca <- pca[,-1]
-# set names
-names(pca)[1] <- "ind"
-names(pca)[2:ncol(pca)] <- paste0("PC", 1:(ncol(pca)-1))
+genes<- read.table(paste0(path, files, sp, "_genomic_regions_annotated"), sep=" ", header=T)
 
-print("named cols")
+data <- left_join(lassi, genes, by= "start") %>%
+  select (chr.x, w_start, w_end, pos, lassi, start, end.x, gene_start, gene_end, ensembl_id, gene_name )
 
-# first convert to percentage variance explained
-pve <- data.frame(PC = 1:(ncol(pca)-1), pve = eigenval/sum(eigenval)*100)
-# then make a plot
-pdf(paste0(path, sp, "prephased_pve.pdf"))
-print(ggplot(pve, aes(PC, pve)) +
-        geom_bar(stat = "identity") +
-        ylab("Percentage variance explained") + 
-        theme_light())
-dev.off()
-print("pve plot done")
+annotation  <- data %>% select(chr.x, start, end.x, gene_start, gene_end, gene_name) %>% distinct() %>% na.omit()
+ 
+assign(paste0(sp, "_data"), data )
+assign(paste0(sp, "_annotation"), annotation )
 
-# plot PC1 PC2
-pdf(paste0(path, sp, "prephased_pca.pdf"))
+regions <- unique(data$start)
 
-print(ggplot() +
-   geom_point(pca, mapping=aes(x= PC1, y= PC2, color=ind) , size=4, alpha = 0.5) +
-    geom_text(pca, mapping=aes(x= PC1, y= PC2, label=ind), size=3, check_overlap = TRUE) +
-    coord_equal() +
-    theme() +
-    xlab(paste0("PC1 (", signif(pve$pve[1], 3), "%)")) +
-    ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)")))
-dev.off()
-print("pca plot done")
-}
+# List objects in the current environment matching the pattern "*_plot"
+  plot_names <- ls(pattern = "._plot$")
 
-##PHASED PCAs##
-for (sp in species)
-{
-#Read phased data
-pca <- read_table(paste0(path, sp, "_goodsamples_filtered_phased_polarized_cat_ref.eigenvec"),
-                   col_names = FALSE)
-eigenval <- scan(paste0(path, sp, "_goodsamples_filtered_phased_polarized_cat_ref.eigenval"))
+  # Remove objects with names matching the pattern (this is important for the loop)
+  rm(list = plot_names) 
+  
+  for (i in (1:length(regions)))
+  {
+  d <- data %>% filter(start == regions[i]) 
+  c <- unique(d$chr)
+  
+  p<- ggplot(d, mapping=aes(x = pos, y = lassi)) +
+    geom_line(color= as.character(colors[sp]), size= 1) +
+    geom_point(color= as.character(colors[sp]), size= 3) +
+    geom_segment(mapping= aes(x = gene_start, xend= gene_end, y= (max(lassi) + 10) , yend = (max(lassi) + 10)),
+                 colour = "#CCD1D1", linewidth = 10) +
+    xlab (c) +
+    theme_minimal() +
+    theme(legend.position = c(.90, .50)) 
 
-print("read data")
-# remove nuisance column
-pca <- pca[,-1]
-# set names
-names(pca)[1] <- "ind"
-names(pca)[2:ncol(pca)] <- paste0("PC", 1:(ncol(pca)-1))
-
-print("named cols")
-
-# first convert to percentage variance explained
-pve <- data.frame(PC = 1:(ncol(pca)-1), pve = eigenval/sum(eigenval)*100)
-# then make a plot
-pdf(paste0(path, sp, "phased_pve.pdf"))
-print(ggplot(pve, aes(PC, pve)) +
-        geom_bar(stat = "identity") +
-        ylab("Percentage variance explained") + 
-        theme_light())
-dev.off()
-print("pve plot done")
-
-# plot PC1 PC2
-pdf(paste0(path, sp, "phased_pca.pdf"))
-
-print(ggplot() +
-   geom_point(pca, mapping=aes(x= PC1, y= PC2, color=ind) , size=4, alpha = 0.5) +
-    geom_text(pca, mapping=aes(x= PC1, y= PC2, label=ind), size=3, check_overlap = TRUE) +
-    coord_equal() +
-    theme() +
-    xlab(paste0("PC1 (", signif(pve$pve[1], 3), "%)")) +
-    ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)")))
-dev.off()
-print("pca plot done")
-}
-```
-
-```{bash}
-bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' *_lp_whatshap_phased_duplicated.vcf | wc -l
-```
-
-```{bash}
-
-#LOOKING FOR THE ERROR
-
-species=(lc lp lr)
-CHR=($(cat $STORE2/reference_genomes/Felis_catus_Ref/Felis_catus.Felis_catus_9.0.dna.toplevel.fa.fai | cut -f 1 | uniq))
-
-for sp in ${species[@]}
-  do
-    for chr in ${CHR[@]:0:19} 
-        do
-          grep -v "#" ${chr}_${sp}_whatshap_phased_duplicated.vcf  >> ${sp}_tryal_nvariants.vcf
-      done
-      wc -l ${sp}_tryal_nvariants.vcf
-      cat <(grep "#" A1_${sp}_whatshap_phased_duplicated.vcf) ${sp}_tryal_nvariants.vcf > ${sp}_tryal_nvariants_header.vcf    
-      bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' ${sp}_tryal_nvariants_header.vcf | wc -l
-    done
+  assign(paste0(i, "_region_plot"), p )
     
+  }
+  
+  ## customize the plot
+  plot_names <- ls(pattern = ".region_plot$")  
+  plot_list <- lapply(plot_names, get)
+  s <- ggarrange(plotlist = plot_list)
+  s <- annotate_figure(s, top = text_grob(as.character(names[sp]), face = "italic", size = 30))
+  
+  print(s)
+}
+```
 
-for sp in ${species[@]}
-  do
-    for chr in ${CHR[@]:0:19} 
-        do
-          grep -v "#" ${chr}_${sp}_shapeit_phased_duplicated_cat_ref.vcf  >> ${sp}_tryal_shapeit_nvariants.vcf
-      done
-      wc -l ${sp}_tryal_shapeit_nvariants.vcf
-      cat <(grep "#" $LUSTRE/phasing/intermediate_files/A1_${sp}_whatshap_phased_duplicated.vcf) ${sp}_tryal_shapeit_nvariants.vcf > ${sp}_tryal_shapeit_nvariants_header.vcf    
-      bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' ${sp}_tryal_shapeit_nvariants_header.vcf | wc -l
-    done  
-   
+```{r , echo = FALSE, fig.height = 10, fig.width = 15}
+
+for (sp in species)
+{
+D3_data <- read.table(paste0(path,files, sp, "_results_table_representation"), 
+                      sep="\t", header= FALSE, na.strings = ".", 
+                      col.names = c("chr", "start", "end", "pos", "statistic", "r_chr", "r_start", "r_end", "n_windows", "n_snps", "weighted_statistic", "window_size", "weight", "bp_overlap")) %>%
+            filter(chr == "D3") 
+
+D3_annotattion <- read.table(paste0(path, files, sp, "_genomic_regions_annotated"), sep=" ", header=T) %>%
+            filter(chr == "D3") %>%
+            distinct() %>% na.omit()
+  
+
+assign(paste0(sp, "_D3_data"), D3_data)
+assign(paste0(sp, "_D3_annotattion"), D3_annotattion)
+}
+
+options(ggrepel.max.overlaps = Inf)
+
+p<- ggplot() +
+  geom_line(lc_D3_data, mapping=aes(x = pos, y = statistic), color= as.character(colors["lc"]), size= 1.5, alpha= 0.8) +
+  geom_line(ll_D3_data, mapping=aes(x = pos, y = statistic), color= as.character(colors["ll"]), size= 1.5, alpha= 0.8) +
+  geom_line(lp_D3_data, mapping=aes(x = pos, y = statistic), color= as.character(colors["lp"]), size= 1.5, alpha= 0.8) +
+  geom_line(lr_D3_data, mapping=aes(x = pos, y = statistic), color= as.character(colors["lr"]), size= 1.5, alpha= 0.8) +
+  geom_label_repel(lc_D3_annotattion, mapping =aes(x= start, y= (lassi_max), label= gene_name), color= as.character(colors["lc"]), size= 5, show.legend = TRUE) +
+  geom_label_repel(ll_D3_annotattion, mapping =aes(x= start, y= (lassi_max), label= gene_name), color= as.character(colors["ll"]), size= 5) +
+  geom_label_repel(lp_D3_annotattion, mapping =aes(x= start, y= (lassi_max), label= gene_name), color= as.character(colors["lp"]), size= 5) +
+  geom_label_repel(lr_D3_annotattion, mapping =aes(x= start, y= (lassi_max), label= gene_name), color= as.character(colors["lr"]), size= 5) +
+  
+  labs (title= "Selection analyses in Chromosome D3", x= "Position in bp", y= "Λ") +
+  theme_minimal() +
+  theme(axis.text=element_text(size=12),
+        axis.title=element_text(size=15,face="bold"),
+        plot.title = element_text(size=25, hjust= 0.5, vjust = 3),
+        plot.margin = unit(c(1,1,1,1), "cm"))
+
+print(p) 
+ggsave(filename = paste0(path, plots, "D3_selection.png"), plot= p, width= 15, height = 10)
 ```

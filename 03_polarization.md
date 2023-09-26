@@ -129,34 +129,68 @@ From the 20,578,917 variants in the vcf 19,463,799 remain consistent (94,6%), wh
 awk '$5!=$6 {print $0}' outgroup_parsimony_ancestral_state_lion_serval_cat_variants.bed > outgroup_parsimony_ancestral_state_lion_serval_cat_null_variants.bed
 
 ############Eliminate unpolarisable variants from the vcf############
+#We are going to do this in both phased and not-phased vcf
 module load cesga/2018  gcccore/6.4.0 bcftools bedtools
 
-
+###for non-phased vcf###
 species=(lc ll lp lr)
 
 for sp in ${species[@]}
   do 
-    bedtools subtract \
-     -a phasing/phased_vcf/${sp}_shapeit_phased_cat_ref.vcf \
-     -b outgroup_parsimony_ancestral_state_lion_serval_cat_null_variants.bed \
-     > ${sp}_goodsamples_filtered_phased_polarized_cat_ref.vcf
+  bedtools subtract \
+    -a $LUSTRE/vcfs/${sp}_goodsamples_cat_ref.filter8.vcf \
+    -b $LUSTRE/polarization/outgroup_parsimony_ancestral_state_lion_serval_cat_null_variants.bed \
+    > $LUSTRE/vcfs/${sp}_goodsamples_filtered_polarized.tmp
     
-    #add the header
-    cat <(grep "##" phasing/phased_vcf/${sp}_shapeit_phased_cat_ref.vcf) \
-      <(grep -m 19 "##contig" goodsamples_cat_ref.filter8.vcf) \
-      <(grep "#CHR" phasing/phased_vcf/${sp}_shapeit_phased_cat_ref.vcf) \
-      ${sp}_goodsamples_filtered_phased_polarized_cat_ref.vcf \
-      > ${sp}_goodsamples_filtered_phased_polarized_header_cat_ref.vcf
+  #add the header
+  cat <(grep "#" $LUSTRE/vcfs/${sp}_goodsamples_cat_ref.filter8.vcf) \
+    $LUSTRE/vcfs/${sp}_goodsamples_filtered_polarized.tmp \
+    > $LUSTRE/vcfs/${sp}_goodsamples_filtered_polarized_header.tmp
       
-    #Test how many variants per sp we have
-    bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' \
-      ${sp}_goodsamples_filtered_phased_polarized_header_cat_ref.vcf | wc -l
+  #Test how many variants per sp we have
+  bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' \
+    $LUSTRE/vcfs/${sp}_goodsamples_filtered_polarized_header.tmp | wc -l
       
-    #Eliminate non-variants sites
-    bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' \
-      ${sp}_goodsamples_filtered_phased_polarized_header_cat_ref.vcf \
-      > ${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf
+  #Eliminate non-variants sites
+  bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' \
+    $LUSTRE/vcfs/${sp}_goodsamples_filtered_polarized_header.tmp\
+    > $LUSTRE/vcfs/${sp}_goodsamples_filtered_polarized_variants_header_cat_ref.vcf
   done
+
+#Remove temporal files
+rm *tmp
+
+  
+###for phased vcf###  
+species=(lc ll lp lr)
+
+for sp in ${species[@]}
+  do 
+  bedtools subtract \
+    -a $LUSTRE/phasing/phased_vcf/${sp}_shapeit_phased_cat_ref.vcf \
+    -b $LUSTRE/polarization/outgroup_parsimony_ancestral_state_lion_serval_cat_null_variants.bed \
+    > ${sp}_goodsamples_filtered_phased_polarized.tmp
+    
+  #add the header
+  cat <(grep "##" $LUSTRE/phasing/phased_vcf/${sp}_shapeit_phased_cat_ref.vcf) \
+    <(grep -m 19 "##contig" $LUSTRE/vcfs/goodsamples_cat_ref.filter8.vcf) \
+    <(grep "#CHR" $LUSTRE/phasing/phased_vcf/${sp}_shapeit_phased_cat_ref.vcf) \
+    ${sp}_goodsamples_filtered_phased_polarized.tmp \
+    > ${sp}_goodsamples_filtered_phased_polarized_header.tmp
+      
+  #Test how many variants per sp we have
+  bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' \
+    ${sp}_goodsamples_filtered_phased_polarized_header.tmp | wc -l
+   
+  #Eliminate non-variants sites
+  bcftools view -e 'INFO/AF=1.00 | INFO/AF=0.00' \
+    ${sp}_goodsamples_filtered_phased_polarized_header.tmp \
+    > ${sp}_goodsamples_filtered_phased_polarized_variants_header_cat_ref.vcf
+  done
+  
+#Remove temporal files
+rm *tmp
+
 ```
 
 By this previous step we confirm this number of per sp variants segregating:
@@ -168,3 +202,13 @@ By this previous step we confirm this number of per sp variants segregating:
 -   *lynx pardinus:* 1,132,613
 
 -   *lynx rufus:* 8,836,277
+
+The numbers without phase are: 1490641/3122607/1139482/8852616. Does it have sense to have more snps when not phasing? Phase shouldn't eliminate any snp (and I have tested is it nothing related to scaffolds cause in both cases the output vcf includes chr til X.
+
+About fixing headers I found this (not tested):
+
+```{bash}
+java -jar picard.jar FixVcfHeader \
+     I=input.vcf \
+     O=fixed.vcf \  
+```
