@@ -1,7 +1,7 @@
 Directories:
 .Rproj.user
 .Rhistory
-.RData
+.RData*
 .Ruserdata
 **/.DS_Store
 files/
