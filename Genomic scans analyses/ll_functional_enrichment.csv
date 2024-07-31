@@ -1,0 +1,6 @@
+GO.ID	Term	Annotated	Significant	Expected	Fisher	p.adj	ontology
+GO:1902236	negative regulation of endoplasmic reticulum stress-induced intrinsic apoptotic signaling pathway	16	2	0.03	0.00044	0.012632142857143	BP
+GO:0001755	neural crest cell migration	37	2	0.07	0.00240	0.012632142857143	BP
+GO:0031648	protein destabilization	40	2	0.08	0.00280	0.012632142857143	BP
+GO:0043632	modification-dependent macromolecule catabolic process	501	3	0.99	0.00760	0.012632142857143	BP
+GO:0045927	positive regulation of growth	166	2	0.33	0.00769	0.012632142857143	BP

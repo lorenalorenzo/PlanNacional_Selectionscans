@@ -1,0 +1,5 @@
+GO.ID	Term	Annotated	Significant	Expected	Fisher	p.adj	ontology
+GO:0019441	tryptophan catabolic process to kynurenine	5	3	0.08	4.6e-05	0.01173	BP
+GO:0006067	ethanol metabolic process	7	3	0.12	0.00016	0.0204	BP
+GO:0032230	positive regulation of synaptic transmission, GABAergic	8	3	0.13	0.00025	0.02125	BP
+GO:0004022	alcohol dehydrogenase (NAD+) activity	6	3	0.11	0.00011	0.02992	MF

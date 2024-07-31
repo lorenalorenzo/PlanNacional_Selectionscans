@@ -1,0 +1,13 @@
+INFO [2024-05-27 12:52:15] $x
+INFO [2024-05-27 12:52:15] gene_lists
+INFO [2024-05-27 12:52:15] 
+INFO [2024-05-27 12:52:15] $category.names
+INFO [2024-05-27 12:52:15] c("Lynx canadensis", "Lynx lynx", "Lynx pardinus", "Lynx rufus")
+INFO [2024-05-27 12:52:15] 
+INFO [2024-05-27 12:52:15] $filename
+INFO [2024-05-27 12:52:15] [1] "repeated_selection_genes.png"
+INFO [2024-05-27 12:52:15] 
+INFO [2024-05-27 12:52:15] $output
+INFO [2024-05-27 12:52:15] [1] TRUE
+INFO [2024-05-27 12:52:15] 
+ERROR [2024-05-27 12:52:15] Unexpected parameter length for "category"

@@ -49,6 +49,6 @@ write.table(df_total, file=(paste0(output_path, sp, "_scan")), sep="\t", row.nam
 
 #Calculate genome-wide iHS values
 print ("Calculating ihs") 
-wgscan.ihs<- ihh2ihs(df_total, (round((min(df_total$FREQ_A) * 2), 2))) 
+wgscan.ihs<- ihh2ihs(df_total, freqbin=(round((min(df_total$FREQ_A) * 2), 2))) 
 write.table(wgscan.ihs$ihs, file=(paste0(output_path, sp, "_ihs_scan")), sep="\t", row.names = FALSE, quote = FALSE)
 print ("Saved ihs data frame")

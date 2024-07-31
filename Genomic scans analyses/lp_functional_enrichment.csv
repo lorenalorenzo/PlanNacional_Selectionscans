@@ -1,0 +1,7 @@
+GO.ID	Term	Annotated	Significant	Expected	Fisher	p.adj	ontology
+GO:1902236	negative regulation of endoplasmic reticulum stress-induced intrinsic apoptotic signaling pathway	16	3	0.14	0.00036	0.04284	BP
+GO:0006334	nucleosome assembly	77	5	0.69	0.00063	0.04284	BP
+GO:0030527	structural constituent of chromatin	90	14	0.87	1.7e-13	2.482e-11	MF
+GO:0046982	protein heterodimerization activity	276	13	2.68	2.9e-06	0.0002117	MF
+GO:0003677	DNA binding	1808	35	17.55	8.9e-05	0.004331333333333	MF
+GO:0000786	nucleosome	118	14	1.14	7.8e-12	1.1778e-09	CC

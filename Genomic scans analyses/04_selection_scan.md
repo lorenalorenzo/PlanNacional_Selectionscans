@@ -1,7 +1,7 @@
 Positive selection genomic scan on lynxes
 ================
 Lorena Lorenzo
-27-Sep-2023
+31-Jul-2024
 
 ## 1. Genomic scan methods
 
@@ -241,7 +241,7 @@ library(grid)
 library(ggrepel)
 
 #Set directories
-path<- "/Users/lorenalorenzo"
+path<- "/Users/lorenalorenzo/PlanNacional_Selectionscans"
 files<- "/files/"
 plots<- "/plots/"
 
@@ -253,14 +253,23 @@ names <- c("lc" = "Lynx canadensis",
             "ll" = "Lynx lynx",
             "lp" = "Lynx pardinus")
 
-chr <- c( "A1", "A2", "A3", "B1", "B2", "B3", "B4", "C1", "C2", "D1", "D2", "D3", "D4", "E1", "E2", "E3", "F1", "F2", "X")
+chr <- c( "A1", "A2", "A3", "B1", "B2", "B3", "B4", "C1", "C2", "D1", "D2", "D3", "D4", "E1", "E2", "E3", "F1", "F2")
 
-colors <- c("lc"= "#AB97B7",
-            "ll"= "#F2AB5A",
-            "lp"="#EB595F",
-            "lr"="#71C178")
+#colors <- c("lc"= "#AB97B7",
+#            "ll"= "#F2AB5A",
+#            "lp"="#EB595F",
+#            "lr"="#71C178")
 #print(as.character(names[species]))
 #print(as.character(colors[species]))
+#colors <- c("lr"= "#ED90A4",
+#            "lp"= "#ABB150",
+#            "ll"="#00C1B2",
+#            "lc"="#ACA2EC")
+
+colors <- c("lr"= "#FFB3B5",
+            "lp"= "#BBCF85",
+            "ll"="#61D8D6",
+            "lc"="#D4BBFC")
 
 #set X axis with chr_size dataframe (for plotting)
     axis_set <- read.table(paste0(path, files, "chr_size.txt"), sep="\t", col.names=c("chr", "size")) %>%
@@ -527,10 +536,15 @@ for sp in ${species[@]}
     done
 ```
 
+Let’s get some information about the genomic regions defined, such as
+size range
+
+![](figs/unnamed-chunk-11-1.png)<!-- -->![](figs/unnamed-chunk-11-2.png)<!-- -->![](figs/unnamed-chunk-11-3.png)<!-- -->![](figs/unnamed-chunk-11-4.png)<!-- -->
+
 ### 2.3 Representation of the intersection
 
 For representation purposes, I want to merge lassi outliers windows data
-with intersected outilies regions data.
+with intersected outliers regions data.
 
 ``` bash
 module load bedtools
@@ -543,9 +557,9 @@ for sp in ${species[@]}
     echo "$sp"
     bedtools intersect \
     -a <(grep -v "chr" saltiLASSI/${sp}_salti.lassip.hap.out | cut -f1,2,3,5,12) \
-    -b <(grep -v "chr" ${sp}_5%outliers_table) \
+    -b <(grep -v "chr" ${sp}_genomic_regions | cut -f1,2,3,4,5,7,10) \
     -wao \
-    > ${sp}_results_table_representation
+    > ${sp}_lassi_windows_genomic_regions
   done  
 ```
 
@@ -558,7 +572,7 @@ for sp in ${species[@]}
     ## [1] "lr 8763 top 5% values"
     ## [1] "lr 10.0232 5% cut-off"
 
-![](figs/unnamed-chunk-12-1.png)<!-- -->
+![](figs/unnamed-chunk-13-1.png)<!-- -->
 
 CLARIFICATION: In the plot we can see \* below the cutoff. That’s
 because another overlapping window passed the cutoff value, so now the
@@ -566,11 +580,62 @@ region includes windows that by its own didn’t were outliers.
 
 Now I want to explore regions defined in a chr
 
-![](figs/unnamed-chunk-13-1.png)<!-- -->![](figs/unnamed-chunk-13-2.png)<!-- -->![](figs/unnamed-chunk-13-3.png)<!-- -->![](figs/unnamed-chunk-13-4.png)<!-- -->
+![](figs/unnamed-chunk-14-1.png)<!-- -->![](figs/unnamed-chunk-14-2.png)<!-- -->![](figs/unnamed-chunk-14-3.png)<!-- -->![](figs/unnamed-chunk-14-4.png)<!-- -->
 
 ### 2.3 Representation of XP-EHH
 
-![](figs/unnamed-chunk-14-1.png)<!-- -->![](figs/unnamed-chunk-14-2.png)<!-- -->![](figs/unnamed-chunk-14-3.png)<!-- -->![](figs/unnamed-chunk-14-4.png)<!-- -->![](figs/unnamed-chunk-14-5.png)<!-- -->![](figs/unnamed-chunk-14-6.png)<!-- -->
+    ## [1] "43 outliers lc_ll_xpehh_scan"
+    ## [1] "xpehh outliers df saved"
+    ## [1] "38 outliers lc_lp_xpehh_scan"
+    ## [1] "xpehh outliers df saved"
+    ## [1] "54 outliers lc_lr_xpehh_scan"
+    ## [1] "xpehh outliers df saved"
+    ## [1] "10 outliers ll_lp_xpehh_scan"
+    ## [1] "xpehh outliers df saved"
+    ## [1] "64 outliers ll_lr_xpehh_scan"
+    ## [1] "xpehh outliers df saved"
+    ## [1] "11 outliers lp_lr_xpehh_scan"
+    ## [1] "xpehh outliers df saved"
+
+![](figs/unnamed-chunk-15-1.png)<!-- -->
+
+Let’s see the annotation on those regions
+
+``` bash
+
+file_list=$(ls files/*xpehh*outliers)
+
+for i in ${file_list[@]}
+  do
+    echo "$i"
+    awk 'NR>1 {print $1"\t"$2-1"\t"$2}' ${i} | sed 's/chr//g' > ${i}.bed
+    
+    #merge every overlapping outlier in xpehh
+    bedtools merge \
+      -d 100000 \
+      -i ${i}.bed \
+      > ${i}_genomic_regions
+      echo "$i merged"
+
+######Cross bed results with annotation file (gff3)    
+    #match selected regions with genome annotation
+    bedtools intersect \
+     -a ${i}_genomic_regions \
+     -b files/Felis_catus.Felis_catus_9.0.97.gff3 \
+     -wa -wb \
+      > ${i}_annotated 
+     echo "$i annotated"
+  done   
+```
+
+``` bash
+# intersection w/ intrasp. outliers (ihs&lassi)
+    bedtools intersect \
+    -wa \
+    -a <(grep -v "chr" files/ll_genomic_regions_annotated | tr " " "\t") \
+    -b ${i}.bed \
+    > ll_lp_xpehh_intersected_ll_lassi_ihs_outliers
+```
 
 ## 3. Interpretation
 
@@ -581,12 +646,189 @@ selection pressure among the putative selected regions (those
 overpassing the filter for both methods). Unfortunately, GO enrichment
 analyses done in PANTHER results in no enrichment pathway in no species.
 
+``` r
+##Dependencies
+#BiocManager::install("biomaRt")
+library(topGO)
+library(biomaRt)
+
+#####Get annotation from ensembl.org#####
+
+#read from ensembl.org every felcat ensembl ID:
+ensembl <- useMart("ensembl", dataset = "fcatus_gene_ensembl")  
+###extract the GOterms for every ensembl_id
+##ensembl_to_go <- getBM(attributes = c("ensembl_gene_id", "external_gene_name", "go_id"), ##mart = ensembl)
+
+# Get attributes
+attributes <- c("ensembl_gene_id", "external_gene_name", "go_id", "gene_biotype")
+
+# Retrieve annotations
+ensembl_to_go <- getBM(attributes = attributes, mart = ensembl) %>%
+  filter(gene_biotype== "protein_coding")
+
+#make a list with every GO terms per ENSEMBL_ ID. 
+go_list <- split(ensembl_to_go$go_id, ensembl_to_go$ensembl_gene_id)
+
+  #comment: Without filtering for coding genes, there is a total of 29550 ensembl_id corresponding to coding genes (19588) + non-coding genes (9468) + pseudogenes (494) according to https://www.ensembl.org/Felis_catus/Info/Annotation. We are getting 19564, 24 less than reported by the assembly (don't really know why)
+
+
+for (sp in species)
+{
+
+#####read my gene data set#####  
+    df_genes<- read.table(paste0(path, files, sp, "_genomic_regions_annotated"), 
+                       sep=" ", header=T)
+    genes <- df_genes$ensembl_id #this is a character object with the ensembl_ids ("ENSFCAG00000008235" "ENSFCAG00000008236" "ENSFCAG00000029529" ...)
+    assign(paste0(sp, "_genes"), genes)
+
+#cross the felcat annotation (ensembl_id with its GOterms) with my set of genes, to get a logical factor of true (if the gene is in the set) and false (if its not)
+allgenes = factor(as.integer(names(go_list) %in% genes))
+names(allgenes) <- names(go_list) #ensure names of allgenes are names of go_list (that is, the ensembl_id)
+
+assign(paste0(sp, "_allgenes"), allgenes)
+
+#create the empty results df before the loop
+final_overrep <- data.frame()
+
+for (gocat in c("BP", "MF", "CC"))
+{
+  
+#####Creating the topGOdata object#####
+godata <- new("topGOdata", ontology = gocat, allGenes = allgenes, 
+              annotationFun = annFUN.gene2GO, gene2GO = go_list, nodeSize= 5)
+
+assign(paste0(sp, gocat, "_godata"), godata)
+#####run the overrepresentation test#####
+over_test <- runTest(godata, statistic = "fisher")
+
+assign(paste0(sp, "_test"), over_test)
+
+result_table <- GenTable(godata, Fisher=over_test, topNodes=over_test@geneData[2], numChar=1000) %>% 
+        as_tibble() %>% 
+        mutate(p.adj = round(p.adjust(as.numeric(gsub("<", "", Fisher)), method="BH"), 15), ontology= gocat) %>% 
+        filter(p.adj<0.05 & Significant >1) 
+
+final_overrep  <- rbind (final_overrep, result_table ) 
+
+}
+assign(paste0(sp, "_results"), final_overrep ) %>% mutate(species= names[sp])
+
+}
+
+write.table(lc_results, file ="lc_functional_enrichment.csv", sep =  "\t", row.names = FALSE, quote = FALSE)
+write.table(ll_results, file ="ll_functional_enrichment.csv", sep =  "\t", row.names = FALSE, quote = FALSE)
+write.table(lp_results, file ="lp_functional_enrichment.csv", sep =  "\t", row.names = FALSE, quote = FALSE)
+write.table(lr_results, file ="lr_functional_enrichment.csv", sep =  "\t", row.names = FALSE, quote = FALSE)
+
+#to print in the Rmd
+print(lc_results)
+```
+
+    ## # A tibble: 5 × 8
+    ##   GO.ID      Term        Annotated Significant Expected Fisher    p.adj ontology
+    ##   <chr>      <chr>           <int>       <int>    <dbl> <chr>     <dbl> <chr>   
+    ## 1 GO:0007186 G protein-…      1342          44    18.3  1.1e-… 1.24e- 6 BP      
+    ## 2 GO:0050911 detection …       451          24     6.14 1.2e-… 1.24e- 6 BP      
+    ## 3 GO:0004984 olfactory …       687          38     9.27 8.0e-… 1.62e-11 MF      
+    ## 4 GO:0004930 G protein-…      1069          42    14.4  3.4e-… 3.45e- 8 MF      
+    ## 5 GO:0005886 plasma mem…      3851          82    53.4  1.4e-… 3.02e- 4 CC
+
+``` r
+print(ll_results)
+```
+
+    ## # A tibble: 5 × 8
+    ##   GO.ID      Term          Annotated Significant Expected Fisher  p.adj ontology
+    ##   <chr>      <chr>             <int>       <int>    <dbl> <chr>   <dbl> <chr>   
+    ## 1 GO:1902236 negative reg…        16           2     0.03 0.000… 0.0126 BP      
+    ## 2 GO:0001755 neural crest…        37           2     0.07 0.002… 0.0126 BP      
+    ## 3 GO:0031648 protein dest…        40           2     0.08 0.002… 0.0126 BP      
+    ## 4 GO:0043632 modification…       501           3     0.99 0.007… 0.0126 BP      
+    ## 5 GO:0045927 positive reg…       166           2     0.33 0.007… 0.0126 BP
+
+``` r
+print(lp_results)
+```
+
+    ## # A tibble: 6 × 8
+    ##   GO.ID      Term        Annotated Significant Expected Fisher    p.adj ontology
+    ##   <chr>      <chr>           <int>       <int>    <dbl> <chr>     <dbl> <chr>   
+    ## 1 GO:1902236 negative r…        16           3     0.14 0.000… 4.28e- 2 BP      
+    ## 2 GO:0006334 nucleosome…        77           5     0.69 0.000… 4.28e- 2 BP      
+    ## 3 GO:0030527 structural…        90          14     0.87 1.7e-… 2.48e-11 MF      
+    ## 4 GO:0046982 protein he…       276          13     2.68 2.9e-… 2.12e- 4 MF      
+    ## 5 GO:0003677 DNA binding      1808          35    17.6  8.9e-… 4.33e- 3 MF      
+    ## 6 GO:0000786 nucleosome        118          14     1.14 7.8e-… 1.18e- 9 CC
+
+``` r
+print(lr_results)
+```
+
+    ## # A tibble: 4 × 8
+    ##   GO.ID      Term          Annotated Significant Expected Fisher  p.adj ontology
+    ##   <chr>      <chr>             <int>       <int>    <dbl> <chr>   <dbl> <chr>   
+    ## 1 GO:0019441 tryptophan c…         5           3     0.08 4.6e-… 0.0117 BP      
+    ## 2 GO:0006067 ethanol meta…         7           3     0.12 0.000… 0.0204 BP      
+    ## 3 GO:0032230 positive reg…         8           3     0.13 0.000… 0.0213 BP      
+    ## 4 GO:0004022 alcohol dehy…         6           3     0.11 0.000… 0.0299 MF
+
+``` r
+# Define a custom color palette for ontology
+ontology_colors <- c("BP" = "#b3e2cd",
+                     "MF" = "#fdcdac",
+                     "CC" = "#cbd5e8")
+
+ontology_names <- c("BP" = "Biological Process",
+                    "MF" = "Molecular Function",
+                    "CC" = "Cellular Component")
+
+# Create the barplot for lc_results
+for (sp in species)
+{
+  # Read the results data frame
+  results <- read.csv(paste0(sp, "_functional_enrichment.csv"), sep = "\t") %>%
+              mutate(Gene_Ratio = Significant / Expected) %>%
+              mutate(qscore = -log(p.adj, base=10)) %>%
+              arrange(ontology, desc(qscore)) %>%
+              mutate(Term = factor(Term, levels = rev(unique(Term))))
+
+  # Create the barplot for all results
+  enrichment <- ggplot(results, aes(x=qscore, y=Term, fill=ontology)) +
+    geom_bar(stat="identity") +
+    labs(x="qscore", y="GO term", title=as.character(names[sp])) +
+    scale_fill_manual(name = "Ontology",
+                      values = ontology_colors,
+                      labels = ontology_names) +
+    theme (plot.title = element_text(face = "italic", size= 20),
+           axis.text.y = element_text(size = 15))  
+
+  assign(paste0(sp, "_enrichment"), enrichment )
+
+}
+## customize
+q<- ggarrange(lc_enrichment, ll_enrichment, lp_enrichment, lr_enrichment, 
+     ncol= 1, nrow= 4, common.legend= TRUE, legend="bottom") 
+
+print(q)
+```
+
+![](figs/unnamed-chunk-18-1.png)<!-- -->
+
+``` r
+ggsave(filename = paste0(path, plots, "enrichment.png"), plot= q, width= 15, height = 20)
+```
+
 ### 3.2 Top regions
 
-As we didn’t get any significant result in the enrichment analyses, we
-decided to look for the most important regions under selection in each
-species. For doing so, we had to decided what parameter describes better
-which regions are “the most important ones”.
+We’ve decided to look for the most important regions under selection in
+each species. For doing so, we had to decided what parameter describes
+better which regions are “the most important ones”. For so, we used
+lassi max.value.
+
+Clarification: When trying the functional enrichment in
+<https://pantherdb.org>, I didn’t get any result because the database
+didn’t find the genes I was providing, so that I did it with topGO as
+seen above.
 
 From the resulting table I get the top 10 putative regions per sp.
 
@@ -599,7 +841,7 @@ assign(paste0(sp, "_results"), data )
 
 data_top10<- data %>%
   arrange(desc(lassi_max)) %>%
-  slice(1:10)
+  dplyr::slice(1:10)
 #write.table(data_top10, file=(paste0(path, files, sp, "_top10")), sep="\t",row.names = FALSE, quote = FALSE)
 
 assign(paste0(sp, "_top10"), data_top10 )
@@ -638,6 +880,116 @@ Now I want to represent each top10 genomic regions and the correspondent
 lassi values. Taking into account I previously calculated the genes
 under the genomic outlier regions, we can add this info to the plot
 
-![](figs/unnamed-chunk-17-1.png)<!-- -->![](figs/unnamed-chunk-17-2.png)<!-- -->![](figs/unnamed-chunk-17-3.png)<!-- -->![](figs/unnamed-chunk-17-4.png)<!-- -->
+![](figs/unnamed-chunk-21-1.png)<!-- -->![](figs/unnamed-chunk-21-2.png)<!-- -->![](figs/unnamed-chunk-21-3.png)<!-- -->![](figs/unnamed-chunk-21-4.png)<!-- -->
 
-![](figs/unnamed-chunk-18-1.png)<!-- -->
+I see there is a conspicuous pattern between species of selection
+outliers in chr D3:
+
+![](figs/unnamed-chunk-22-1.png)<!-- -->
+
+## 4. Repeated selection ocurring in several sp. in the genus
+
+This approach is used to identify genes used repeatedly for adaptation
+based on genomic scans results.
+
+``` bash
+bedtools intersect -wa -wb \
+       -a <(cut -f 1-3 files/lc_lassi_ihs_regions) \
+       -b <(cut -f 1-3 files/ll_lassi_ihs_regions) <(cut -f 1-3 files/lp_lassi_ihs_regions) <(cut -f 1-3 files/lr_lassi_ihs_regions) \
+       -names ll lp lr \
+       -sorted \
+       > files/lc_repeated_regions
+       
+bedtools intersect -wa -wb \
+       -a <(cut -f 1-3 files/ll_lassi_ihs_regions) \
+       -b <(cut -f 1-3 files/lc_lassi_ihs_regions) <(cut -f 1-3 files/lp_lassi_ihs_regions) <(cut -f 1-3 files/lr_lassi_ihs_regions) \
+       -names lc lp lr \
+       -sorted \
+       > files/ll_repeated_regions      
+       
+bedtools intersect -wa -wb \
+       -a <(cut -f 1-3 files/lp_lassi_ihs_regions) \
+       -b <(cut -f 1-3 files/lc_lassi_ihs_regions) <(cut -f 1-3 files/ll_lassi_ihs_regions) <(cut -f 1-3 files/lr_lassi_ihs_regions) \
+       -names lc ll lr \
+       -sorted \
+       > files/lp_repeated_regions  
+       
+bedtools intersect -wa -wb \
+       -a <(cut -f 1-3 files/lr_lassi_ihs_regions) \
+       -b <(cut -f 1-3 files/lc_lassi_ihs_regions) <(cut -f 1-3 files/ll_lassi_ihs_regions) <(cut -f 1-3 files/lp_lassi_ihs_regions) \
+       -names lc ll lp \
+       -sorted \
+       > files/lr_repeated_regions  
+       
+######Cross bed results with annotation file (gff3)    
+    #match selected regions with genome annotation
+species=(lc ll lp lr)
+
+for sp in ${species[@]}
+  do
+    echo "$sp"
+    bedtools intersect \
+     -a files/${sp}_repeated_regions \
+     -b files/Felis_catus.Felis_catus_9.0.97.gff3 \
+     -wa -wb \
+      > files/${sp}_annotated_tmp 
+     echo "$sp annotated"
+     #filter only genes
+     awk '$10=="gene"' files/${sp}_annotated_tmp  > files/${sp}_gene_tmp
+     echo "$sp gene filtered"   
+     #get only interesting columns
+    cut -f 1-8,11-12,16 files/${sp}_gene_tmp > files/${sp}_filtered_tmp
+    #ensembl id and gene name as column data
+    cut -d';' -f1,2 files/${sp}_filtered_tmp | tr ';' '\t'  | awk '{if ($12 ~ /Name=[[:alnum:]]/) $12=$12; else $12="NA"; print $0}' > files/${sp}_rep_genes_names_tmp 
+    
+    #cut extra-info from ens code and gene name columns
+    paste <(cut -d" " -f-10 files/${sp}_rep_genes_names_tmp) <(cut -d" " -f11 files/${sp}_rep_genes_names_tmp | cut -d":" -f2) <(cut -d" " -f12 files/${sp}_rep_genes_names_tmp | cut -d"=" -f2) |  tr "\t" " "  >> files/${sp}_rep_columns_tmp
+    
+    #print a header (column names)
+    echo -e "chr start end sp chr_2 start_2 end_2 gene_chr gene_start gene_end ensembl_id gene_name" | cat - files/${sp}_rep_columns_tmp > files/${sp}_repetitive_genomic_regions_annotated
+      
+        #remove temporal files
+       rm files/*tmp
+    done
+  done   
+```
+
+VENN DIAGRAM:
+
+In order to represent the repetitive selection between species in
+relation to gene name, I will get the list of genes for each species and
+compare those lists:
+
+``` r
+library(ggvenn)
+
+
+# Initialize an empty list to store gene sets
+gene_lists <- list()
+ensembl_lists<- list()
+
+# Read the gene data sets for each species and store in the list
+for (sp in species) {
+  df_genes <- read.table(paste0(path, files, sp, "_genomic_regions_annotated"), 
+                         sep=" ", header=TRUE)
+  ens_ids<- na.omit(df_genes$ensembl_id)
+  ensembl_lists[[sp]]<- ens_ids
+  genes <- na.omit(df_genes$gene_name)
+  gene_lists[[sp]] <- genes
+}
+
+# Assign meaningful names to the gene sets
+names(gene_lists) <- c("Lynx canadensis", "Lynx lynx", "Lynx pardinus", "Lynx rufus")
+
+# Generate the Venn diagram using ggvenn
+p <- ggvenn(
+        gene_lists,
+        fill_color = c(as.character(colors["lc"]), as.character(colors["ll"]), as.character(colors["lp"]), as.character(colors["lr"])),
+        stroke_size = 0,
+        show_percentage = FALSE,
+        set_name_size = 6,
+        text_size = 6,
+)
+
+ggsave(filename = paste0(path, plots, "genes_venn_diagram.pdf"), plot= p, width= 15, height = 10)
+```

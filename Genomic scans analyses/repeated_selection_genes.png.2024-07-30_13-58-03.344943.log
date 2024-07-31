@@ -1,0 +1,12 @@
+INFO [2024-07-30 13:58:03] $x
+INFO [2024-07-30 13:58:03] gene_lists
+INFO [2024-07-30 13:58:03] 
+INFO [2024-07-30 13:58:03] $category.names
+INFO [2024-07-30 13:58:03] c("Lynx canadensis", "Lynx lynx", "Lynx pardinus", "Lynx rufus")
+INFO [2024-07-30 13:58:03] 
+INFO [2024-07-30 13:58:03] $filename
+INFO [2024-07-30 13:58:03] [1] "repeated_selection_genes.png"
+INFO [2024-07-30 13:58:03] 
+INFO [2024-07-30 13:58:03] $output
+INFO [2024-07-30 13:58:03] [1] TRUE
+INFO [2024-07-30 13:58:03] 
